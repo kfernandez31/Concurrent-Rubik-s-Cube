@@ -1,9 +1,8 @@
 package concurrentcube;
 
+import java.util.Random;
+
 public enum Side {
-
-    NoSide(-1),
-
     Top(0),
     Left(1),
     Front(2),
@@ -11,10 +10,11 @@ public enum Side {
     Back(4),
     Bottom(5),
 
+    NoSide(-1),
     SIDES(6);
 
     private static final Side[] values = values();
-
+    private static final Random rand = new Random();
     private final int side;
 
     Side(int side) {
@@ -29,16 +29,20 @@ public enum Side {
         return values[ordinal];
     }
 
+    public static Side randomSide() {
+        return fromInt(rand.nextInt(SIDES.intValue()));
+    }
+
     public Side opposite() {
-        return switch (this) {
-            case Top -> Bottom;
-            case Left -> Right;
-            case Front -> Back;
-            case Right -> Left;
-            case Back -> Front;
-            case Bottom -> Top;
-            default -> throw new IndexOutOfBoundsException("Invalid side.");
-        };
+        switch (this) {
+            case Top : return Bottom;
+            case Left : return Right;
+            case Front : return Back;
+            case Right : return Left;
+            case Back : return Front;
+            case Bottom : return Top;
+            default : throw new IndexOutOfBoundsException("Invalid side.");
+        }
     }
 
 }

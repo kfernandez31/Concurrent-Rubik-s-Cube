@@ -9,7 +9,6 @@ public class FrontRotation extends Rotation {
         super(cube, Side.Front, layer);
     }
 
-
     @Override
     protected int calculateGroup() {
         return side.intValue() * layer;

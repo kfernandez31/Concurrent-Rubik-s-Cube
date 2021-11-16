@@ -9,7 +9,6 @@ public class BottomRotation extends Rotation {
         super(cube, Side.Bottom, layer);
     }
 
-
     @Override
     protected int calculateGroup() {
         return side.opposite().intValue() * (cube.getSize() - 1 - layer);

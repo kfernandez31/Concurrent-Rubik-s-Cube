@@ -2,46 +2,17 @@ package concurrentcube;
 
 import concurrentcube.Rotations.Rotation;
 
-import java.util.LinkedList;
-import java.util.Queue;
-import java.util.concurrent.Semaphore;
+import java.util.Arrays;
 import java.util.function.BiConsumer;
 
 public class Cube {
-    private final static int AXES = 3;
-
     private final int size;
     private final Color[][] squares;
     private final BiConsumer<Integer, Integer> beforeRotation;
     private final BiConsumer<Integer, Integer> afterRotation;
     private final Runnable beforeShowing;
     private final Runnable afterShowing;
-
-    /* ------ Variables needed for process synchronization ------ */
-    /* Mutual exclusion semaphore. */
-    private final Semaphore mutex = new Semaphore(1);
-    /* Queue to hang awaiting rotations. */
-    private final Semaphore writersQueue = new Semaphore(0, true);
-    /* Queue to hang awaiting show requests. */
-    private final Semaphore readersQueue = new Semaphore(0, true);
-
-    /* Queue containing information about each process hanging on `writersQueue`. */
-    private final Queue<Rotation> readerInfoQueue = new LinkedList<>();
-
-    /* Number of processes waiting to call `show` */
-    private int waitingReaders;
-    /* Number of processes that are currently calling `show` */
-    private int activeReaders ;
-
-    /* Number of rotations currently taking place */
-    private int activeWriters;
-
-    /* Contains the side ID of the first process that initiated any rotations in its group. */
-    private Side currentSide;
-
-    /* Statuses of the cube's rings/layers - are they being rotated or not. */
-    private final boolean[] isOccupied;
-    /* -----------------------------------------------------------*/
+    private final ProcessManager pm;
 
     public int getSize() {
         return size;
@@ -49,9 +20,20 @@ public class Cube {
     public Color[][] getSquares() {
         return squares;
     }
-
     public Color getSquareColor(Side side, int row, int col) {
         return squares[side.intValue()][row * size + col];
+    }
+    public BiConsumer<Integer, Integer> getBeforeRotation() {
+        return beforeRotation;
+    }
+    public BiConsumer<Integer, Integer> getAfterRotation() {
+        return afterRotation;
+    }
+    public Runnable getBeforeShowing() {
+        return beforeShowing;
+    }
+    public Runnable getAfterShowing() {
+        return afterShowing;
     }
 
     public void setSquareColor(Color color, Side side, int row, int col) {
@@ -74,17 +56,20 @@ public class Cube {
      * @param afterShowing : action performed after every displaying of the cube
      */
     public Cube(int size,
-                BiConsumer<Integer, Integer> beforeRotation, BiConsumer<Integer, Integer> afterRotation,
-                Runnable beforeShowing, Runnable afterShowing) {
+                BiConsumer<Integer, Integer> beforeRotation,
+                BiConsumer<Integer, Integer> afterRotation,
+                Runnable beforeShowing,
+                Runnable afterShowing) {
 
         // Cube initialization.
+        assert(size > 0);
         this.size = size;
         this.beforeRotation = beforeRotation;
         this.afterRotation = afterRotation;
         this.beforeShowing = beforeShowing;
         this.afterShowing = afterShowing;
         this.squares = new Color[Side.SIDES.intValue()][size * size];
-        this.isOccupied = new boolean[AXES];
+        this.pm = new ProcessManager(this);
 
         solve();
     }
@@ -100,59 +85,13 @@ public class Cube {
     public void rotate(int side, int layer) throws InterruptedException {
         Rotation me = Rotation.newRotation(this, Side.fromInt(side), layer);
 
-        /* --- Entry protocol --- */
-        mutex.acquire();
-
-        /* Wait if:
-        - another process else requests (any) access to the cube,
-        - the currently working group of processes collides with mine
-        */
-        if (waitingReaders > 0 || !readerInfoQueue.isEmpty() || isOccupied[me.getGroupno() % AXES] ||
-                (!me.isParallel(currentSide) && currentSide != Side.NoSide)) {
-            mutex.release();
-            readerInfoQueue.add(me);
-            writersQueue.acquire(); /* --- Critical section inheritance --- */
-        }
-        /* Occupy my corresponding layer */
-        isOccupied[me.getGroupno() % AXES] = true;
-
-        /* I'm the first process - set currently working group based on my side */
-        if (activeWriters == 0) {
-            currentSide = me.getSide();
-        }
-        activeWriters++;
-
-        if (!readerInfoQueue.isEmpty()) {
-            Rotation next = readerInfoQueue.peek();
-
-            /* Wake up any non-colliding processes that'll work in parallel */
-            if (me.isParallel(next.getSide()) && !isOccupied[next.getGroupno() & AXES]) {
-                readerInfoQueue.poll();
-                writersQueue.release(); /* --- Critical section transfer --- */
-            } else {
-                mutex.release();
-            }
-        } else {
-            mutex.release();
-        }
-
-        /* --- Critical section --- */
-        beforeRotation.accept(side, layer);
-        me.applyRotation();
-        afterRotation.accept(side, layer);
-
-        /* --- Exit protocol --- */
-        mutex.acquire();
-        activeWriters--;
-        /* Wake up any waiting process, prioritizing ones that request `show`.
-            Note: Checking whether `detailsQueue` is empty corresponds to checking whether `rotationsQueue` is */
-        if (waitingReaders > 0) {
-            readersQueue.release();
-        } else if (activeWriters == 0 && !readerInfoQueue.isEmpty()) {
-            writersQueue.release();
-        } else {
-            mutex.release();
-        }
+        pm.entryProtocol();
+        pm.writerWaitIfNecessary(me);
+        pm.occupyLayer(me);
+        pm.setWorkingGroup(me);
+        pm.inviteParallelReaders();
+        pm.writerEnterCriticalSection(me);
+        pm.writerExitProtocol(me);
     }
 
     /**
@@ -166,48 +105,14 @@ public class Cube {
      * @return `this.toString()`
      */
     public String show() throws InterruptedException {
+        String str;
 
-        /* --- Entry protocol --- */
-        mutex.acquire();
+        pm.entryProtocol();
+        pm.readerWaitIfNecessary();
+        pm.inviteParallelReaders();
+        str = pm.readerEnterCriticalSection();
+        pm.readerExitProtocol();
 
-        /* Wait if:
-        - another process requests access to write to the cube
-        */
-        if (!readerInfoQueue.isEmpty()) {
-            waitingReaders++;
-            mutex.release();
-            readersQueue.acquire(); /* --- Critical section inheritance --- */
-            waitingReaders--;
-        }
-        activeReaders++;
-
-        /* Wake up any non-colliding processes that'll work in parallel */
-        if (waitingReaders > 0) {
-            readersQueue.release();
-        } else {
-            mutex.release();
-        }
-
-        /* --- Critical section --- */
-        beforeShowing.run();
-        String str = toString();
-        afterShowing.run();
-
-        /* --- Exit protocol --- */
-        mutex.acquire();
-        activeReaders--;
-        /* Wake up any waiting process, prioritizing ones that request `show`.
-            Note: Checking whether `detailsQueue` is empty corresponds to checking whether `rotationsQueue` is */
-        if (activeReaders == 0) {
-            if (!readerInfoQueue.isEmpty()) {
-                readerInfoQueue.poll();
-                writersQueue.release();
-            } else if (waitingReaders > 0) {
-                readersQueue.release();
-            } else {
-                mutex.release();
-            }
-        } //TODO: i tu bez else'a ?
         return str;
     }
 
@@ -238,6 +143,24 @@ public class Cube {
         }
     }
 
+    /**
+     * Asserts whether a cube is solved - checks if every face is colored in
+     * the color with a corresponding enumeration constant.
+     * @return whether the cube is solved
+     */
+    public boolean isSolved() {
+        for (int side = Side.Top.intValue(); side < Side.SIDES.intValue(); side++) {
+            Color color = Color.fromInt(side);
+            for (int row = 0; row < size; row++) {
+                for (int col = 0; col < size; col++) {
+                    if (squares[side][row *  size + col] != color) {
+                        return false;
+                    }
+                }
+            }
+        }
+        return true;
+    }
 
     @Override
     public boolean equals(Object o) {
@@ -251,30 +174,7 @@ public class Cube {
         if (size != other.getSize()) {
             return false;
         }
-
-        return arrangementEquals(other.getSquares());
-    }
-
-    /**
-     * Checks if the cube's squares match the provided arrangement.
-     * @param arrangement: compared color arrangement
-     * @return squares == this.squares
-     */
-    public boolean arrangementEquals(Color[][] arrangement) {
-        if (arrangement.length != size || arrangement[0].length != size) {
-            return false;
-        }
-
-        for (int side = Side.Top.intValue(); side < Side.SIDES.intValue(); side++) {
-            for (int row = 0; row < size; row++) {
-                for (int col = 0; col < size; col++) {
-                    if (this.squares[side][row * size + col] != arrangement[side][row * side + col]) {
-                        return false;
-                    }
-                }
-            }
-        }
-        return true;
+        return Arrays.deepEquals(squares, other.getSquares());
     }
 
     @Override

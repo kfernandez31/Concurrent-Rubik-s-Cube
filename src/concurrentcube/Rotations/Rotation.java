@@ -6,7 +6,6 @@ import concurrentcube.Side;
 
 public abstract class Rotation {
 
-    //TODO: zamienić side na face wszędzie gdzie to ten konteskt
     protected final Side side;
     protected final Cube cube;
     protected final int layer;
@@ -20,22 +19,14 @@ public abstract class Rotation {
     }
 
     public static Rotation newRotation(Cube cube, Side side, int layer) {
-        //TODO: zrobić stare switche
         switch (side) {
-            case Top:
-                return new TopRotation(cube, layer);
-            case Left:
-                return new LeftRotation(cube, layer);
-            case Front:
-                return new FrontRotation(cube, layer);
-            case Right:
-                return new RightRotation(cube, layer);
-            case Back:
-                return new BackRotation(cube, layer);
-            case Bottom:
-                return new BottomRotation(cube, layer);
-            default:
-                throw new IndexOutOfBoundsException("Invalid side.");
+            case Top : return new TopRotation(cube, layer);
+            case Left : return new LeftRotation(cube, layer);
+            case Front : return new FrontRotation(cube, layer);
+            case Right : return new RightRotation(cube, layer);
+            case Back : return new BackRotation(cube, layer);
+            case Bottom : return new BottomRotation(cube, layer);
+            default : throw new IndexOutOfBoundsException("Invalid side.");
         }
     }
 
@@ -67,15 +58,14 @@ public abstract class Rotation {
      * How the rotation is performed:
      * - swaps rows and columns of surrounding sides cyclically,
      * - reverses them if it has to,
-     * - and finally turns the whole face 90 degrees clockwise.
+     * - and finally turns the whole side 90 degrees clockwise.
      */
-    public void applyRotation()
-    {
+    public void applyRotation() {
         if (layer == 0) {
-            turnFaceClockwise(side);
+            turnSideClockwise(side);
         }
         else if (layer == cube.getSize() - 1) {
-            turnFaceCounterclockwise(side.opposite());
+            turnSideCounterclockwise(side.opposite());
         }
     }
 
@@ -85,21 +75,24 @@ public abstract class Rotation {
      * @return are rotations parallel
      */
     public boolean isParallel(Side side) {
-        return this.side == side || this.side.opposite() == side;
+        if (side == Side.NoSide) {
+            return true;
+        }
+        else return this.side == side || this.side.opposite() == side;
     }
 
     /**
      * Swaps colors of two squares on a cube.
-     * @param side_a : face of the first square
+     * @param side_a : side of the first square
      * @param row_a : row of the first square
      * @param col_a : column of the first square
-     * @param side_b : face of the second square
+     * @param side_b : side of the second square
      * @param row_b : row of the second square
      * @param col_b : column of the second square
      */
     public void swapSquareColors(Side side_a, int row_a, int col_a, Side side_b, int row_b, int col_b) {
         Color temp = cube.getSquareColor(side_a, row_a, col_a);
-        cube.setSquareColor(cube.getSquareColor(side_b, row_b, col_b), side_a, row_a, col_b);
+        cube.setSquareColor(cube.getSquareColor(side_b, row_b, col_b), side_a, row_a, col_a);
         cube.setSquareColor(temp, side_b, row_b, col_b);
     }
 
@@ -165,8 +158,8 @@ public abstract class Rotation {
     }
 
     /**
-     * Reflects a face of the cube diagonally.
-     * @param side : reflected face
+     * Reflects a side of the cube diagonally.
+     * @param side : reflected side
      */
     private void reflectDiagonally(Side side) {
         for (int i = 0; i < cube.getSize(); i++) {
@@ -177,8 +170,8 @@ public abstract class Rotation {
     }
 
     /**
-     * Reflects a face of the cube horizontally.
-     * @param side : reflected face
+     * Reflects a side of the cube horizontally.
+     * @param side : reflected side
      */
     private void reflectHorizontally(Side side) {
         for (int i = 0; i < cube.getSize(); i++) {
@@ -189,8 +182,8 @@ public abstract class Rotation {
     }
 
     /**
-     * Reflects a face of the cube vertically.
-     * @param side : reflected face
+     * Reflects a side of the cube vertically.
+     * @param side : reflected side
      */
     private void reflectVertically(Side side) {
         for (int i = 0; i < cube.getSize() / 2; i++) {
@@ -213,21 +206,21 @@ public abstract class Rotation {
      */
 
     /**
-     * Rotates a face of the cube counter-clockwise by 90 degrees
+     * Rotates a side of the cube counter-clockwise by 90 degrees
      * as a composition of two linear isometries.
-     * @param side : rotated face
+     * @param side : rotated side
      */
-    protected void turnFaceCounterclockwise(Side side) {
+    protected void turnSideCounterclockwise(Side side) {
         reflectDiagonally(side);
         reflectHorizontally(side);
     }
 
     /**
-     * Rotates a face of the cube clockwise by 90 degrees.
+     * Rotates a side of the cube clockwise by 90 degrees.
      * as a composition of two linear isometries.
-     * @param side : rotated face
+     * @param side : rotated side
      */
-    protected void turnFaceClockwise(Side side) {
+    protected void turnSideClockwise(Side side) {
         reflectDiagonally(side);
         reflectVertically(side);
     }
