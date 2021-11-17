@@ -5,6 +5,8 @@ import concurrentcube.Rotations.Rotation;
 import java.util.Arrays;
 import java.util.function.BiConsumer;
 
+//comment
+
 public class Cube {
     private final int size;
     private final Color[][] squares;
