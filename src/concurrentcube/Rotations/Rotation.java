@@ -4,6 +4,8 @@ import concurrentcube.Color;
 import concurrentcube.Cube;
 import concurrentcube.Side;
 
+//test comment
+
 public abstract class Rotation {
 
     protected final Side side;
