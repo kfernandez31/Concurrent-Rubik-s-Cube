@@ -18,7 +18,7 @@ public class RightRotation extends Rotation {
     public void applyRotation() {
         swapColumnAndColumn(Side.Top, cube.getSize() - 1 - layer, Side.Front, cube.getSize() - 1 - layer);
         swapColumnAndColumn(Side.Front, cube.getSize() - 1 - layer, Side.Bottom, cube.getSize() - 1 - layer);
-        swapColumnAndColumn(Side.Bottom, cube.getSize() - 1 - layer, Side.Back, cube.getSize() - 1 - layer);
+        swapColumnAndColumn(Side.Bottom, cube.getSize() - 1 - layer, Side.Back, layer);
 
         reverseColumn(Side.Bottom, cube.getSize() - 1 - layer);
         reverseColumn(Side.Back, cube.getSize() - 1 - layer);

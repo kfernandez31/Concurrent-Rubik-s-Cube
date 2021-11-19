@@ -10,7 +10,7 @@ public class BackRotation extends Rotation {
     }
 
     @Override
-    protected int calculateGroup() {
+    protected int calculateGroup() { //TODO: to się chyba pieprzy
         return side.opposite().intValue() * (cube.getSize() - 1 - layer);
     }
 

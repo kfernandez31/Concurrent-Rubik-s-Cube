@@ -5,9 +5,9 @@ import concurrentcube.Rotations.Rotation;
 import java.util.Arrays;
 import java.util.function.BiConsumer;
 
-//ala ma kota
-
 public class Cube {
+    private final int NUM_FACES = 6;
+
     private final int size;
     private final Color[][] squares;
     private final BiConsumer<Integer, Integer> beforeRotation;
@@ -87,11 +87,24 @@ public class Cube {
     public void rotate(int side, int layer) throws InterruptedException {
         Rotation me = Rotation.newRotation(this, Side.fromInt(side), layer);
 
-        pm.entryProtocol();
-        pm.writerWaitIfNecessary(me);
+        try {
+            pm.entryProtocol();
+        } catch (InterruptedException e) {
+            pm.postEntryProtocolCleanup();
+            throw e;
+        }
+
+        try {
+            pm.writerWaitIfNecessary(me);
+        } catch (InterruptedException e) {
+            pm.writerPostWaitCleanup(me);
+            throw e;
+        }
+
         pm.occupyLayer(me);
         pm.setWorkingGroup(me);
-        pm.inviteParallelReaders();
+        pm.inviteParallelWriters(me);
+        //System.out.printf("rotate(%d, %d)\n", side, layer);
         pm.writerEnterCriticalSection(me);
         pm.writerExitProtocol(me);
     }
@@ -109,8 +122,20 @@ public class Cube {
     public String show() throws InterruptedException {
         String str;
 
-        pm.entryProtocol();
-        pm.readerWaitIfNecessary();
+        try {
+            pm.entryProtocol();
+        } catch (InterruptedException e) {
+            pm.postEntryProtocolCleanup();
+            throw e;
+        }
+
+        try {
+            pm.readerWaitIfNecessary();
+        } catch (InterruptedException e) {
+            pm.readerPostWaitCleanup();
+            throw e;
+        }
+
         pm.inviteParallelReaders();
         str = pm.readerEnterCriticalSection();
         pm.readerExitProtocol();
@@ -162,6 +187,18 @@ public class Cube {
             }
         }
         return true;
+    }
+
+    /**
+     * Makes a deep copy of this cube's squares` arrangement;
+     * @return deep copy of `this.squares`
+     */
+    public Color[][] getCopyOfSquares() {
+        Color copy[][] = new Color[NUM_FACES][size * size];
+        for (int i = 0; i < 6; i++) {
+            copy[i] = Arrays.copyOf(squares[i], squares[i].length);
+        }
+        return copy;
     }
 
     @Override

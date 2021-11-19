@@ -2,8 +2,8 @@ package concurrentcube;
 
 import concurrentcube.Rotations.Rotation;
 
-import java.util.LinkedList;
-import java.util.Queue;
+import java.util.Deque;
+import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.Semaphore;
 
 //todo: JavaDoc
@@ -17,7 +17,7 @@ public class ProcessManager {
     /* Queue to hang awaiting show requests. */
     private final Semaphore readersQueue = new Semaphore(0, true);
     /* Queue containing information about each process hanging on `writersQueue`. */
-    private final Queue<Rotation> readerInfoQueue = new LinkedList<>();
+    private final Deque<Rotation> writerInfoQueue = new ConcurrentLinkedDeque<>();
     /* Number of processes waiting to call `show` */
     private int waitingReaders;
     /* Number of processes that are currently calling `show` */
@@ -46,8 +46,6 @@ public class ProcessManager {
         mutex.acquire();
     }
 
-    //TODO: lepsza jedna, przeładowana nazwa na wait'y i enter'y?
-
     /**
      * Halts a writer-type process before entering the critical section
      * if there are other active processes inside that would collide with it
@@ -55,13 +53,12 @@ public class ProcessManager {
      * @param writer : data of the requested rotation
      */
     public void writerWaitIfNecessary(Rotation writer) throws InterruptedException {
-        if (waitingReaders > 0 || !readerInfoQueue.isEmpty() ||
-                isOccupied[writer.getGroupno() % AXES] || !writer.isParallel(currentSide)) {
+        if (waitingReaders > 0 || !writerInfoQueue.isEmpty() ||
+                isOccupied[writer.getGroupNo() % AXES] || !writer.isParallel(currentSide)) {
+            writerInfoQueue.add(writer);
             mutex.release();
-            readerInfoQueue.add(writer);
             writersQueue.acquire(); /* --- Critical section inheritance --- */
         }
-        activeWriters++;
     }
 
     /**
@@ -70,13 +67,12 @@ public class ProcessManager {
      * (i.e. any writers)
      */
     public void readerWaitIfNecessary() throws InterruptedException {
-        if (!readerInfoQueue.isEmpty()) {
+        if (!writerInfoQueue.isEmpty() || activeWriters > 0) {
             waitingReaders++;
             mutex.release();
             readersQueue.acquire(); /* --- Critical section inheritance --- */
             waitingReaders--;
         }
-        activeReaders++;
     }
 
     /**
@@ -85,7 +81,8 @@ public class ProcessManager {
      * @param writer : data of the requested rotation
      */
     public void occupyLayer(Rotation writer) {
-        isOccupied[writer.getGroupno() % AXES] = true;
+        activeWriters++;
+        isOccupied[writer.getGroupNo() % AXES] = true;
     }
 
     /**
@@ -104,12 +101,12 @@ public class ProcessManager {
      * @param writer : data of the requested rotation
      */
     public void inviteParallelWriters(Rotation writer) {
-        if (!readerInfoQueue.isEmpty()) {
-            Rotation next = readerInfoQueue.peek();
+        if (!writerInfoQueue.isEmpty()) {
+            Rotation next = writerInfoQueue.peek();
 
             /* Wake up any non-colliding processes that'll work in parallel */
-            if (writer.isParallel(next.getSide()) && !isOccupied[next.getGroupno() & AXES]) {
-                readerInfoQueue.poll();
+            if (writer.isParallel(next.getSide()) && !isOccupied[next.getGroupNo() & AXES]) {
+                writerInfoQueue.poll();
                 writersQueue.release(); /* --- Critical section transfer --- */
             } else {
                 mutex.release();
@@ -123,6 +120,7 @@ public class ProcessManager {
      * Wakes up other readers to read data from the cube concurrently.
      */
     public void inviteParallelReaders() {
+        activeReaders++;
         if (waitingReaders > 0) {
             readersQueue.release();
         } else {
@@ -163,15 +161,15 @@ public class ProcessManager {
      * and allows other writers and readers to enter, prioritizing readers.
      * @param writer - data of the requested rotation
      */
-    public void writerExitProtocol(Rotation writer) throws InterruptedException {
-        mutex.acquire();
+    public void writerExitProtocol(Rotation writer) {
+        mutex.acquireUninterruptibly();
         activeWriters--;
-        isOccupied[writer.getGroupno() % AXES] = false;
+        isOccupied[writer.getGroupNo() % AXES] = false;
         /* Wake up any waiting process,
             prioritizing ones that request `show`. */
         if (waitingReaders > 0) {
             readersQueue.release();
-        } else if (activeWriters == 0 && !readerInfoQueue.isEmpty()) {
+        } else if (activeWriters == 0 && !writerInfoQueue.isEmpty()) {
             writersQueue.release();
         } else {
             currentSide = Side.NoSide;
@@ -183,21 +181,64 @@ public class ProcessManager {
      * Indicates that a reader is abandoning the critical section,
      * and allows other writers and readers to enter, prioritizing writers.
      */
-    public void readerExitProtocol() throws InterruptedException {
+    public void readerExitProtocol() {
           /* Wake up any waiting process,
             prioritizing ones that request `rotate`. */
-        mutex.acquire();
+        mutex.acquireUninterruptibly();
         activeReaders--;
         if (activeReaders == 0) {
-            if (!readerInfoQueue.isEmpty()) {
-                readerInfoQueue.poll();
+            if (!writerInfoQueue.isEmpty()) {
+                writerInfoQueue.poll();
                 writersQueue.release();
             } else if (waitingReaders > 0) {
                 readersQueue.release();
             } else {
                 mutex.release();
             }
-        } //TODO: tu nie trzeba else'a ?
+        } else {
+            mutex.release();
+        }
+    }
+
+    /**
+     * Cleanup required to allow new processes to begin their entry protocol.
+     */
+    public void postEntryProtocolCleanup() {
+        mutex.release();
+    }
+
+    /**
+     * Cleanup required to remove a writer's data from `writerInfoQueue`
+     * and skip straight to its exit protocol, waking up other processes.
+     * @param me : interrupted rotation
+     */
+    public void writerPostWaitCleanup(Rotation me) throws InterruptedException {
+        writerInfoQueue.pollLast();
+
+        if (waitingReaders > 0) {
+            readersQueue.release();
+        } else if (!writerInfoQueue.isEmpty()) {
+            writerInfoQueue.poll();
+            writersQueue.release();
+        } else {
+            mutex.release();
+        }
+    }
+
+    /**
+     *
+     */
+    public void readerPostWaitCleanup() throws InterruptedException {
+        waitingReaders--;
+
+        if (!writerInfoQueue.isEmpty()) {
+            writerInfoQueue.poll();
+            writersQueue.release();
+        } else if (waitingReaders > 0) {
+            readersQueue.release();
+        } else {
+            mutex.release();
+        }
     }
 
 }

@@ -4,8 +4,6 @@ import concurrentcube.Color;
 import concurrentcube.Cube;
 import concurrentcube.Side;
 
-//test comment
-
 public abstract class Rotation {
 
     protected final Side side;
@@ -32,15 +30,16 @@ public abstract class Rotation {
         }
     }
 
+    public Cube getCube() {
+        return cube;
+    }
     public Side getSide() {
         return side;
     }
-
     public int getLayer() {
         return layer;
     }
-
-    public int getGroupno() {
+    public int getGroupNo() {
         return group_no;
     }
 
@@ -73,7 +72,7 @@ public abstract class Rotation {
 
     /**
      * Checks if two rotations operate on parallel layers of a cube.
-     * @param side - another rotation's side
+     * @param side : another rotation's side
      * @return are rotations parallel
      */
     public boolean isParallel(Side side) {
