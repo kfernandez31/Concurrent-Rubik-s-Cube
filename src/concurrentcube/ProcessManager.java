@@ -2,115 +2,169 @@ package concurrentcube;
 
 import concurrentcube.Rotations.Rotation;
 
-import java.util.Deque;
-import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.Semaphore;
 
-//todo: JavaDoc
-//todo: zrobić z tego singleton
+//TODO: should cleanup code in finally blocks?
 public class ProcessManager {
 
     /* Mutual exclusion semaphore. */
-    private final Semaphore mutex = new Semaphore(1);
-    /* Queue to hang awaiting rotations. */
-    private final Semaphore writersQueue = new Semaphore(0, true);
-    /* Queue to hang awaiting show requests. */
-    private final Semaphore readersQueue = new Semaphore(0, true);
-    /* Queue containing information about each process hanging on `writersQueue`. */
-    private final Deque<Rotation> writerInfoQueue = new ConcurrentLinkedDeque<>();
+    private final Semaphore mutex;
+    /* Queue to hang awaiting show requests */
+    private final Semaphore readerSem;
     /* Number of processes waiting to call `show` */
     private int waitingReaders;
     /* Number of processes that are currently calling `show` */
-    private int activeReaders ;
+    private int activeReaders;
     /* Number of rotations currently taking place */
     private int activeWriters;
-    /* Contains the side ID of the first process that initiated any rotations in its group. */
-    private Side currentSide;
-    /* Statuses of the cube's rings/layers - are they being rotated or not. */
-    private final boolean[] isOccupied;
+    /* Number of processes waiting to call `rotate` */
+    private int waitingWriters;
+    /* Number of processes waiting to call `rotate` from a specific group */
+    private final int[] waitingWritersFromGivenGroup;
+    /* Contains the side ID of the first process that initiated any rotations in its group */
+    private AxisGroup currentGroup;
+    /* ID of the last group of writers that finished their work */
+    private int lastFinishedWriterGroupId;
+    /* Statuses of the cube's rings/layers - are they being rotated or not */
+    private final boolean[] layerIsOccupied;
+    /* Semaphores for writers on each axis */
+    private final Semaphore[] writerSems;
 
-    /* Number of axes on a cube : Top-Bottom, Left-Right, Front-Back */
-    private static final int AXES = 3;
     private final Cube cube;
+
+    private final Semaphore messageMutex = new Semaphore(1);
+    public void printStatus(Rotation r, String status) throws InterruptedException {
+        messageMutex.acquire();
+//        System.out.printf("Process:   rotate(%d,%d), ID: %d\n", r.getSide().intValue(), r.getLayer(), r.ID);
+//        System.out.println("Status:    " + status + "\n");
+        messageMutex.release();
+    }
 
     public ProcessManager(Cube cube) {
         this.cube = cube;
-        this.isOccupied = new boolean[AXES * cube.getSize()]; //TODO: czy to mogłoby być rozmiaru `size
-        this.currentSide = Side.NoSide;
+        this.lastFinishedWriterGroupId = -1;
+        this.mutex = new Semaphore(1);
+        this.readerSem = new Semaphore(0, true);
+        this.waitingWritersFromGivenGroup = new int[AxisGroup.NUM_GROUPS.intValue()];
+
+        this.writerSems = new Semaphore[AxisGroup.NUM_GROUPS.intValue()];
+        for (int i = 0; i < AxisGroup.NUM_GROUPS.intValue(); i++) {
+            this.writerSems[i] = new Semaphore(0);
+        }
+
+        this.layerIsOccupied = new boolean[cube.getSize()];
     }
 
     /**
      * Enables a process to enter its entry protocol, waits if necessary.
      */
     public void entryProtocol() throws InterruptedException {
-        mutex.acquire();
+        try {
+            mutex.acquire();
+        } catch (InterruptedException e) {
+            mutex.release();
+            throw e;
+        }
+    }
+
+
+    /**
+     * Enables a process to enter its entry protocol, waits if necessary.
+     */
+    public void writerEntryProtocol(Rotation writer) throws InterruptedException {
+        try {
+//            printStatus(writer, "waiting for mutex.");
+            mutex.acquire();
+//            printStatus(writer, "acquired mutex.");
+        } catch (InterruptedException e) {
+            mutex.release();
+            throw e;
+        }
+    }
+
+    /**
+     * Condition that, when met, halts a writer on its axis' semaphore
+     * @param writer : data of the requested writer
+     * @return should the writer wait
+     */
+    private boolean writerWaitCondition(Rotation writer) {
+        return activeReaders > 0 || waitingReaders > 0 || (activeWriters > 0
+                && (currentGroup != writer.getGroup() || layerIsOccupied[writer.getLayerDisregardingOrientation()]));
+    }
+
+    private boolean readerWaitCondition() {
+        return activeWriters > 0 || waitingWriters > 0;
     }
 
     /**
      * Halts a writer-type process before entering the critical section
      * if there are other active processes inside that would collide with it
      * (i.e. readers or non-parallel writers)
-     * @param writer : data of the requested rotation
+     * @param writer : data of the requested writer
      */
     public void writerWaitIfNecessary(Rotation writer) throws InterruptedException {
-        if (waitingReaders > 0 || !writerInfoQueue.isEmpty() ||
-                isOccupied[writer.getGroupNo() % AXES] || !writer.isParallel(currentSide)) {
-            writerInfoQueue.add(writer);
+        try {
+            if (writerWaitCondition(writer)) {
+                waitingWritersFromGivenGroup[writer.getGroup().intValue()]++;
+                waitingWriters++;
+//                printStatus(writer, "released mutex.");
+                mutex.release();
+//                printStatus(writer, "waiting for writerQueues[" + writer.getLayerDisregardingOrientation() + "]");
+                writerSems[writer.getGroup().intValue()].acquire();
+//                printStatus(writer, "waiting writerQueues[" + writer.getLayerDisregardingOrientation() + "]");
+                waitingWritersFromGivenGroup[writer.getGroup().intValue()]--;
+                waitingWriters--;
+            }
+        } catch (InterruptedException e) {
+            mutex.acquireUninterruptibly();
+            waitingWritersFromGivenGroup[writer.getGroup().intValue()]--;
+            waitingWriters--;
             mutex.release();
-            writersQueue.acquire(); /* --- Critical section inheritance --- */
+            throw e;
         }
     }
 
     /**
-     * Halts a reader-type process before entering the critical section
+     * Halts a reader before entering the critical section
      * if there are other active processes inside that would collide with it.
      * (i.e. any writers)
      */
     public void readerWaitIfNecessary() throws InterruptedException {
-        if (!writerInfoQueue.isEmpty() || activeWriters > 0) {
-            waitingReaders++;
-            mutex.release();
-            readersQueue.acquire(); /* --- Critical section inheritance --- */
+        try {
+            if (readerWaitCondition()) {
+                waitingReaders++;
+                mutex.release();
+                readerSem.acquire();
+                waitingReaders--;
+            }
+        } catch(InterruptedException e) {
+            mutex.acquireUninterruptibly();
             waitingReaders--;
+            mutex.release();
+            throw e;
         }
     }
 
     /**
      * Sets a layer's status to occupied,
-     * indicating that a rotation has been approved on it.
-     * @param writer : data of the requested rotation
+     * indicating that a rotation on it has begun.
+     * @param writer : data of the working writer
      */
     public void occupyLayer(Rotation writer) {
         activeWriters++;
-        isOccupied[writer.getGroupNo() % AXES] = true;
-    }
-
-    /**
-     * Marks the cube as being rotated around an axis (by the first entering writer),
-     * allowing only processes performing rotations around it.
-     * @param writer : data of the requested rotation
-     */
-    public void setWorkingGroup(Rotation writer) {
         if (activeWriters == 1) {
-            currentSide = writer.getSide();
+            currentGroup = writer.getGroup();
         }
+        layerIsOccupied[writer.getLayerDisregardingOrientation()] = true;
     }
 
     /**
      * Wakes up other writers performing rotations on free layers around the same axis.
-     * @param writer : data of the requested rotation
+     * @param writer : data of the current writer
      */
     public void inviteParallelWriters(Rotation writer) {
-        if (!writerInfoQueue.isEmpty()) {
-            Rotation next = writerInfoQueue.peek();
-
-            /* Wake up any non-colliding processes that'll work in parallel */
-            if (writer.isParallel(next.getSide()) && !isOccupied[next.getGroupNo() & AXES]) {
-                writerInfoQueue.poll();
-                writersQueue.release(); /* --- Critical section transfer --- */
-            } else {
-                mutex.release();
-            }
+        if (waitingWritersFromGivenGroup[writer.getGroup().intValue()] > 0) {
+            writerSems[writer.getGroup().intValue()].release();
         } else {
             mutex.release();
         }
@@ -121,18 +175,19 @@ public class ProcessManager {
      */
     public void inviteParallelReaders() {
         activeReaders++;
+
         if (waitingReaders > 0) {
-            readersQueue.release();
+            readerSem.release();
         } else {
             mutex.release();
         }
     }
 
     /**
-     * Allows a writer to enter the critical section.
-     * @param writer : data of the requested rotation
+     * Allows a writer to write to the cube.
+     * @param writer : what is being written to the cube
      */
-    public void writerEnterCriticalSection(Rotation writer) {
+    public void writeToCube(Rotation writer) {
         if (cube.getBeforeRotation() != null) {
             cube.getBeforeRotation().accept(writer.getSide().intValue(), writer.getLayer());
         }
@@ -143,9 +198,9 @@ public class ProcessManager {
     }
 
     /**
-     * Allows a reader to enter the critical section.
+     * Allows a reader to read from the cube.
      */
-    public String readerEnterCriticalSection() {
+    public String readFromCube() {
         if (cube.getBeforeShowing() != null) {
             cube.getBeforeShowing().run();
         }
@@ -157,41 +212,57 @@ public class ProcessManager {
     }
 
     /**
-     * Indicates that a writer is abandoning the critical section,
+     * Indicates that a writer is abandoning his critical section,
      * and allows other writers and readers to enter, prioritizing readers.
-     * @param writer - data of the requested rotation
+     * @param writer - data of the abandoning process
      */
     public void writerExitProtocol(Rotation writer) {
+//        printStatus(writer, "waiting for mutex.");
         mutex.acquireUninterruptibly();
+//        printStatus(writer, "acquired mutex.");
         activeWriters--;
-        isOccupied[writer.getGroupNo() % AXES] = false;
-        /* Wake up any waiting process,
-            prioritizing ones that request `show`. */
-        if (waitingReaders > 0) {
-            readersQueue.release();
-        } else if (activeWriters == 0 && !writerInfoQueue.isEmpty()) {
-            writersQueue.release();
+        layerIsOccupied[writer.getLayerDisregardingOrientation()] = false;
+
+        if (activeWriters == 0) {
+            lastFinishedWriterGroupId = writer.getGroup().intValue();
+            if (waitingReaders > 0) {
+                readerSem.release();
+            } else if (waitingWriters > 0) {
+                for (int i = 1; i <= AxisGroup.NUM_GROUPS.intValue(); i++) {
+                    if (waitingWritersFromGivenGroup[(writer.getGroup().intValue() + i) % AxisGroup.NUM_GROUPS.intValue()] > 0) {
+//                        printStatus(writer, "released writerQueue[" + i + "].");
+                        writerSems[(writer.getGroup().intValue() + i) % AxisGroup.NUM_GROUPS.intValue()].release();
+                        break;
+                    }
+                }
+            } else {
+//                printStatus(writer, "released mutex.");
+                mutex.release();
+            }
         } else {
-            currentSide = Side.NoSide;
+//            printStatus(writer, "released mutex.");
             mutex.release();
         }
     }
 
     /**
-     * Indicates that a reader is abandoning the critical section,
+     * Indicates that a reader is abandoning his critical section,
      * and allows other writers and readers to enter, prioritizing writers.
      */
     public void readerExitProtocol() {
-          /* Wake up any waiting process,
-            prioritizing ones that request `rotate`. */
         mutex.acquireUninterruptibly();
         activeReaders--;
+
         if (activeReaders == 0) {
-            if (!writerInfoQueue.isEmpty()) {
-                writerInfoQueue.poll();
-                writersQueue.release();
+            if (waitingWriters > 0) {
+                for (int i = 1; i <= AxisGroup.NUM_GROUPS.intValue(); i++) {
+                    if (waitingWritersFromGivenGroup[(lastFinishedWriterGroupId + i) % AxisGroup.NUM_GROUPS.intValue()] > 0) {
+                        writerSems[(lastFinishedWriterGroupId+ i) % AxisGroup.NUM_GROUPS.intValue()].release();
+                        break;
+                    }
+                }
             } else if (waitingReaders > 0) {
-                readersQueue.release();
+                readerSem.release();
             } else {
                 mutex.release();
             }
@@ -199,46 +270,4 @@ public class ProcessManager {
             mutex.release();
         }
     }
-
-    /**
-     * Cleanup required to allow new processes to begin their entry protocol.
-     */
-    public void postEntryProtocolCleanup() {
-        mutex.release();
-    }
-
-    /**
-     * Cleanup required to remove a writer's data from `writerInfoQueue`
-     * and skip straight to its exit protocol, waking up other processes.
-     * @param me : interrupted rotation
-     */
-    public void writerPostWaitCleanup(Rotation me) throws InterruptedException {
-        writerInfoQueue.pollLast();
-
-        if (waitingReaders > 0) {
-            readersQueue.release();
-        } else if (!writerInfoQueue.isEmpty()) {
-            writerInfoQueue.poll();
-            writersQueue.release();
-        } else {
-            mutex.release();
-        }
-    }
-
-    /**
-     *
-     */
-    public void readerPostWaitCleanup() throws InterruptedException {
-        waitingReaders--;
-
-        if (!writerInfoQueue.isEmpty()) {
-            writerInfoQueue.poll();
-            writersQueue.release();
-        } else if (waitingReaders > 0) {
-            readersQueue.release();
-        } else {
-            mutex.release();
-        }
-    }
-
 }

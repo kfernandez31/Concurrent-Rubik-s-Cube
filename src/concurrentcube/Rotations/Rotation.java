@@ -2,20 +2,25 @@ package concurrentcube.Rotations;
 
 import concurrentcube.Color;
 import concurrentcube.Cube;
+import concurrentcube.AxisGroup;
 import concurrentcube.Side;
 
 public abstract class Rotation {
 
     protected final Side side;
-    protected final Cube cube;
     protected final int layer;
-    protected final int group_no;
+    protected final Cube cube;
+    protected final AxisGroup axisGroup;
+
+    public static int nextID = 0;
+    public final int ID;
 
     protected Rotation(Cube cube, Side side, int layer) {
         this.cube = cube;
         this.side = side;
         this.layer = layer;
-        this.group_no = calculateGroup();
+        this.axisGroup = assignGroup();
+        this.ID = nextID++;
     }
 
     public static Rotation newRotation(Cube cube, Side side, int layer) {
@@ -39,16 +44,23 @@ public abstract class Rotation {
     public int getLayer() {
         return layer;
     }
-    public int getGroupNo() {
-        return group_no;
+    public AxisGroup getGroup() {
+        return axisGroup;
     }
 
     /**
-     * Calculates to which group a given rotation belongs to based on its side and rotated layer.
-     * There is a total of 3 * `size` rotation groups (3 choices for an axis and size for a column/row)
-     * @return group number
+     * Assigns a group based on the rotation's axis.
+     * @return group
      */
-    protected abstract int calculateGroup();
+    protected abstract AxisGroup assignGroup();
+
+    /**
+     * Returns the index of the layer the rotation wants to alter,
+     * however antagonist rotations (altering the same "ring" of the cube
+     * but from different perspectives) will return the same index.
+     * @return group
+     */
+    public abstract int getLayerDisregardingOrientation();
 
     /**
      * Physically rotates a Rubik's cube -
@@ -66,20 +78,8 @@ public abstract class Rotation {
             turnSideClockwise(side);
         }
         else if (layer == cube.getSize() - 1) {
-            turnSideCounterclockwise(side.opposite());
+            turnSideCounterClockwise(side.opposite());
         }
-    }
-
-    /**
-     * Checks if two rotations operate on parallel layers of a cube.
-     * @param side : another rotation's side
-     * @return are rotations parallel
-     */
-    public boolean isParallel(Side side) {
-        if (side == Side.NoSide) {
-            return true;
-        }
-        else return this.side == side || this.side.opposite() == side;
     }
 
     /**
@@ -177,7 +177,7 @@ public abstract class Rotation {
     private void reflectHorizontally(Side side) {
         for (int i = 0; i < cube.getSize(); i++) {
             for (int j = 0; j < cube.getSize() / 2; j++) {
-                swapSquareColors(side, i, j, side, cube.getSize() - 1 - i, j);
+                swapSquareColors(side, i, j, side, i, cube.getSize() - 1 - j);
             }
         }
     }
@@ -189,31 +189,19 @@ public abstract class Rotation {
     private void reflectVertically(Side side) {
         for (int i = 0; i < cube.getSize() / 2; i++) {
             for (int j = 0; j < cube.getSize(); j++) {
-                swapSquareColors(side, i, j, side, i, cube.getSize() - 1 - j);
+                swapSquareColors(side, i, j, side, cube.getSize() - 1 - i, j);
             }
         }
     }
-
-    /*
-     for (int x = 0; x < N / 2; x++) {
-            for (int y = x; y < N - x - 1; y++) {
-                Color temp = cube.getSquareColor(side, x, y);
-                cube.setSquareColor(cube.getSquareColor(side, y, N - 1 - x), side, x, y);
-                cube.setSquareColor(cube.getSquareColor(side, N - 1 - x, N - 1 - y), side, y, N - 1 - x);
-                cube.setSquareColor(cube.getSquareColor(side, N - 1 - y, x), side, N - 1 - x, N - 1 - y);
-                cube.setSquareColor(temp, side, N - 1 - y, x);
-            }
-        }
-     */
 
     /**
      * Rotates a side of the cube counter-clockwise by 90 degrees
      * as a composition of two linear isometries.
      * @param side : rotated side
      */
-    protected void turnSideCounterclockwise(Side side) {
+    protected void turnSideCounterClockwise(Side side) {
         reflectDiagonally(side);
-        reflectHorizontally(side);
+        reflectVertically(side);
     }
 
     /**
@@ -223,7 +211,7 @@ public abstract class Rotation {
      */
     protected void turnSideClockwise(Side side) {
         reflectDiagonally(side);
-        reflectVertically(side);
+        reflectHorizontally(side);
     }
 
 }

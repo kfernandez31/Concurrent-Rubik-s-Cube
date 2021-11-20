@@ -1,6 +1,7 @@
 package concurrentcube.Rotations;
 
 import concurrentcube.Cube;
+import concurrentcube.AxisGroup;
 import concurrentcube.Side;
 
 public class BackRotation extends Rotation {
@@ -10,8 +11,13 @@ public class BackRotation extends Rotation {
     }
 
     @Override
-    protected int calculateGroup() { //TODO: to się chyba pieprzy
-        return side.opposite().intValue() * (cube.getSize() - 1 - layer);
+    protected AxisGroup assignGroup() {
+        return AxisGroup.FrontBack;
+    }
+
+    @Override
+    public int getLayerDisregardingOrientation() {
+        return cube.getSize() - 1 - layer;
     }
 
     @Override

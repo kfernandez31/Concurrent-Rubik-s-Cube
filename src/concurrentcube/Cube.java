@@ -85,28 +85,15 @@ public class Cube {
      * @param layer : rotated layer
      */
     public void rotate(int side, int layer) throws InterruptedException {
-        Rotation me = Rotation.newRotation(this, Side.fromInt(side), layer);
+        Rotation r = Rotation.newRotation(this, Side.fromInt(side), layer);
 
-        try {
-            pm.entryProtocol();
-        } catch (InterruptedException e) {
-            pm.postEntryProtocolCleanup();
-            throw e;
-        }
-
-        try {
-            pm.writerWaitIfNecessary(me);
-        } catch (InterruptedException e) {
-            pm.writerPostWaitCleanup(me);
-            throw e;
-        }
-
-        pm.occupyLayer(me);
-        pm.setWorkingGroup(me);
-        pm.inviteParallelWriters(me);
-        //System.out.printf("rotate(%d, %d)\n", side, layer);
-        pm.writerEnterCriticalSection(me);
-        pm.writerExitProtocol(me);
+        pm.writerEntryProtocol(r);
+        pm.writerWaitIfNecessary(r);
+        pm.occupyLayer(r);
+        pm.inviteParallelWriters(r);
+        pm.writeToCube(r);
+//        pm.printStatus(r, "ROTATING");
+        pm.writerExitProtocol(r);
     }
 
     /**
@@ -120,26 +107,13 @@ public class Cube {
      * @return `this.toString()`
      */
     public String show() throws InterruptedException {
-        String str;
-
-        try {
-            pm.entryProtocol();
-        } catch (InterruptedException e) {
-            pm.postEntryProtocolCleanup();
-            throw e;
-        }
-
-        try {
-            pm.readerWaitIfNecessary();
-        } catch (InterruptedException e) {
-            pm.readerPostWaitCleanup();
-            throw e;
-        }
-
+        pm.entryProtocol();
+        pm.readerWaitIfNecessary();
         pm.inviteParallelReaders();
-        str = pm.readerEnterCriticalSection();
-        pm.readerExitProtocol();
 
+        String str = pm.readFromCube();
+
+        pm.readerExitProtocol();
         return str;
     }
 
@@ -229,6 +203,20 @@ public class Cube {
             }
         }
         return new String(chars);
+    }
+
+    public String toStringDebug() {
+        String str = "";
+
+        for (int side = Side.Top.intValue(); side < Side.SIDES.intValue(); side++) {
+            for (int row = 0; row < size; row++) {
+                for (int col = 0; col < size; col++) {
+                    str += squares[side][row * size + col].charValue();
+                }
+            }
+            str += " ";
+        }
+        return str;
     }
 
 }

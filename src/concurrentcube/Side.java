@@ -10,7 +10,6 @@ public enum Side {
     Back(4),
     Bottom(5),
 
-    NoSide(-1),
     SIDES(6);
 
     private static final Side[] values = values();

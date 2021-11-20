@@ -1,6 +1,7 @@
 package concurrentcube.Rotations;
 
 import concurrentcube.Cube;
+import concurrentcube.AxisGroup;
 import concurrentcube.Side;
 
 public class TopRotation extends Rotation {
@@ -10,8 +11,13 @@ public class TopRotation extends Rotation {
     }
 
     @Override
-    protected int calculateGroup() {
-        return side.intValue() * layer;
+    protected AxisGroup assignGroup() {
+        return AxisGroup.TopBottom;
+    }
+
+    @Override
+    public int getLayerDisregardingOrientation() {
+        return layer;
     }
 
     @Override
