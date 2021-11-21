@@ -27,7 +27,7 @@ public class CubeTest {
     private static final Stopwatch stopwatch = new Stopwatch();
 
     //TODO: wtrynić wszędzie show'y
-    //TODO: Wywalić simpleRotate'y
+    //TODO: Wywalić simpleRotate'y (?)
 
     /* ------------------------ Helper functions and structures ------------------------ */
 
@@ -35,6 +35,13 @@ public class CubeTest {
         Thread t = Thread.currentThread();
         t.interrupt();
         System.err.println(t.getName() + " interrupted");
+    }
+
+    private static void sleep(int millis) {
+        try {
+            TimeUnit.MILLISECONDS.sleep(millis);
+        } catch (InterruptedException ignored) {
+        }
     }
 
     private static void assertThat(boolean condition) {
@@ -50,7 +57,7 @@ public class CubeTest {
         }
     }
 
-    private static void addPermutations(List<Rotation> perm, int k, List<List<Rotation>> acc) {
+    private static <T> void addPermutations(List<T> perm, int k, List<List<T>> acc) {
         for(int i = k; i < perm.size(); i++){
             java.util.Collections.swap(perm, i, k);
             addPermutations(perm, k+1, acc);
@@ -61,8 +68,8 @@ public class CubeTest {
         }
     }
 
-    private static List<List<Rotation>> generateInterlacings(List<Rotation> initialPermutation) {
-        List<List<Rotation>> outcomes = new ArrayList<>();
+    private static <T> List<List<T>> generateInterlacings(List<T> initialPermutation) {
+        List<List<T>> outcomes = new ArrayList<>();
         addPermutations(initialPermutation, 0, outcomes);
         return outcomes;
     }
@@ -132,12 +139,41 @@ public class CubeTest {
 
     /* ------------------------ Concurrent tests ------------------------ */
 
+    @Test
+    public void testDelegateManyRandomRotations() {
+        var counter = new Object() { int value = 0; };
+        Cube cube = new Cube(TEST_MAX_CUBE_SIZE,
+                (x, y) -> { ++counter.value; },
+                (x, y) -> { ++counter.value; },
+                () -> { ++counter.value; },
+                () -> { ++counter.value; });
+
+        final int NUM_ROTATIONS = 100;
+
+        ExecutorService pool = Executors.newFixedThreadPool(NUM_THREADS);
+        List<Callable<Object>> tasks = new ArrayList<>(NUM_ROTATIONS);
+
+        for (int i = 0; i < NUM_ROTATIONS; i++) {
+            tasks.add(Executors.callable(
+                    new RotationTask(cube, Side.randomSide().intValue(), 1 + rand.nextInt(cube.getSize()))));
+        }
+
+        try {
+            pool.invokeAll(tasks);
+            assertThat(cube.isLegal() && counter.value == 2 * NUM_ROTATIONS);
+        } catch (InterruptedException e) {
+            interruptCurrentThread();
+        } finally {
+            pool.shutdown();
+        }
+    }
+
     /**
      * Tests whether a composition of rotations produced by multi-threading is legal.
      */
     @Test
     public void testRotationCompositionResult() {
-        final int NUM_ROTATIONS = 8; //Do not go higher than 9, since time will grow in O(n*n!)
+        final int NUM_ROTATIONS = 8; //I advise you not to go higher than 9, since time will grow in O(n*n!)
         var counter = new Object() { int value = 0; };
         Cube cube = new Cube(TEST_MAX_CUBE_SIZE,
                 (x, y) -> { ++counter.value; },
@@ -178,8 +214,55 @@ public class CubeTest {
         }
     }
 
+    /**
+     * Tests whether conflicting rotations are actually stopped on their axis' semaphores
+     * and whether only one can rotate the cube at a time.
+     */
+    @Test
+    public void testLetAnotherRotationPass() {
+        var counter = new Object() {
+            int times_first_thread_started_rotating = 0;
+            int times_someone_else_started_rotating = 0;
+        };
+        Cube cube = new Cube(3,
+                (side, __) -> {
+                    if (side == Side.Top.intValue()) {
+                        ++counter.times_first_thread_started_rotating;
+                        sleep(200); // give time for other threads to try and pass
+                        assertThat(counter.times_someone_else_started_rotating == 0);
+                    }
+                    else {
+                        ++counter.times_someone_else_started_rotating;
+                    }
+                },
+                null, null, null);
 
-    /* ----------- Safety tests ----------- */
+        RotationTask politeRunnable = new RotationTask(cube, Side.Top.intValue(), 0);
+        Thread firstThread = new Thread(politeRunnable);
+
+        Thread[] otherThreads = new Thread[] {
+                new Thread(new RotationTask(cube,  Side.Left.intValue(), 0)),
+                new Thread(new RotationTask(cube,  Side.Front.intValue(), 0)),
+                new Thread(new RotationTask(cube,  Side.Right.intValue(), 0)),
+                new Thread(new RotationTask(cube,  Side.Back.intValue(), 0)),
+                new Thread(new RotationTask(cube,  Side.Bottom.intValue(), 2)),
+        };
+
+        firstThread.start();
+        sleep(100); //TODO: this is to ensure `firstThread` will start first
+        for (Thread t : otherThreads) {
+            t.start();
+        }
+        try {
+            firstThread.join();
+            for (Thread t : otherThreads) {
+                t.join();
+            }
+            assertThat(counter.times_first_thread_started_rotating == 1);
+        } catch (InterruptedException e) {
+            interruptCurrentThread();
+        }
+    }
 
     /**
      * Tests whether each rotation has a cycle of length 4.
@@ -284,8 +367,7 @@ public class CubeTest {
         }
     }
 
-    /* ----------- Liveness tests ----------- */
-
+    //TODO
     @Test
     public void testTimeOfIndependentProcesses() {
 

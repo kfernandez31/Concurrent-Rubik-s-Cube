@@ -145,6 +145,27 @@ public class Cube {
     }
 
     /**
+     * Determines whether a cube has a legal amount of squares of each color.
+     * @return did any process damage the cube
+     */
+    public boolean isLegal() {
+        int[] colorOccurrences = new int[Color.COLORS.intValue()];
+        for (int side = Side.Top.intValue(); side < Side.SIDES.intValue(); side++) {
+            for (int row = 0; row < size; row++) {
+                for (int col = 0; col < size; col++) {
+                    colorOccurrences[squares[side][row *  size + col].intValue()]++;
+                }
+            }
+        }
+        for (int i = 0; i < Color.COLORS.intValue(); i++) {
+            if (colorOccurrences[i] != size * size) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
      * Asserts whether a cube is solved - checks if every face is colored in
      * the color with a corresponding enumeration constant.
      * @return whether the cube is solved
