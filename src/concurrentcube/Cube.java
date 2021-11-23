@@ -3,13 +3,14 @@ package concurrentcube;
 import concurrentcube.Rotations.Rotation;
 
 import java.util.Arrays;
+import java.util.List;
 import java.util.function.BiConsumer;
 
 public class Cube {
     private final int NUM_FACES = 6;
 
     private final int size;
-    private final Color[][] squares;
+    private final Color[][] squares; //TODO: AtomicReferenceArray<Color>
     private final BiConsumer<Integer, Integer> beforeRotation;
     private final BiConsumer<Integer, Integer> afterRotation;
     private final Runnable beforeShowing;
@@ -92,7 +93,7 @@ public class Cube {
         pm.occupyLayer(r);
         pm.inviteParallelWriters(r);
         pm.writeToCube(r);
-//        pm.printStatus(r, "ROTATING");
+        //pm.printStatus(r, "ROTATING");
         pm.writerExitProtocol(r);
     }
 
@@ -161,6 +162,7 @@ public class Cube {
             if (colorOccurrences[i] != size * size) {
                 return false;
             }
+//            System.out.println("" + Color.fromInt(i) +  ": " + colorOccurrences[i]);
         }
         return true;
     }
@@ -194,6 +196,17 @@ public class Cube {
             copy[i] = Arrays.copyOf(squares[i], squares[i].length);
         }
         return copy;
+    }
+
+    /**
+     * Solves the cube and applies provided rotations sequentially.
+     * @param rotations : list of requested rotations
+     */
+    public void applySequenceOfRotations(List<Rotation> rotations) {
+        solve();
+        for (Rotation rot : rotations) {
+            rot.applyRotation();
+        }
     }
 
     @Override

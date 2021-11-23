@@ -4,7 +4,7 @@ import concurrentcube.Rotations.Rotation;
 
 import java.util.concurrent.Semaphore;
 
-//TODO: should cleanup code in finally blocks?
+/*TODO: should cleanup code in finally blocks? */
 public class ProcessManager {
 
     /* Mutual exclusion semaphore. */
@@ -33,11 +33,15 @@ public class ProcessManager {
     private final Cube cube;
 
     private final Semaphore messageMutex = new Semaphore(1);
-    public void printStatus(Rotation r, String status) throws InterruptedException {
-        messageMutex.acquire();
-//        System.out.printf("Process:   rotate(%d,%d), ID: %d\n", r.getSide().intValue(), r.getLayer(), r.ID);
-//        System.out.println("Status:    " + status + "\n");
-        messageMutex.release();
+    public void printStatus(Rotation r, String status) {
+        try {
+            messageMutex.acquire();
+            System.out.printf("Process:   rotate(%d,%d), ID: %d\n", r.getSide().intValue(), r.getLayer(), r.ID);
+            System.out.println("Status:    " + status + "\n");
+            messageMutex.release();
+        } catch (InterruptedException ignored) {
+
+        }
     }
 
     public ProcessManager(Cube cube) {
@@ -73,9 +77,9 @@ public class ProcessManager {
      */
     public void writerEntryProtocol(Rotation writer) throws InterruptedException {
         try {
-//            printStatus(writer, "waiting for mutex.");
+            //printStatus(writer, "waiting for mutex.");
             mutex.acquire();
-//            printStatus(writer, "acquired mutex.");
+            //printStatus(writer, "acquired mutex.");
         } catch (InterruptedException e) {
             mutex.release();
             throw e;
@@ -107,11 +111,11 @@ public class ProcessManager {
             if (writerWaitCondition(writer)) {
                 waitingWritersFromGivenGroup[writer.getGroup().intValue()]++;
                 waitingWriters++;
-//                printStatus(writer, "released mutex.");
+                //printStatus(writer, "released mutex.");
                 mutex.release();
-//                printStatus(writer, "waiting for writerQueues[" + writer.getLayerDisregardingOrientation() + "]");
+                //printStatus(writer, "waiting for writerSems[" + writer.getLayerDisregardingOrientation() + "]");
                 writerSems[writer.getGroup().intValue()].acquire();
-//                printStatus(writer, "waiting writerQueues[" + writer.getLayerDisregardingOrientation() + "]");
+                //printStatus(writer, "acquired writerSems[" + writer.getLayerDisregardingOrientation() + "]");
                 waitingWritersFromGivenGroup[writer.getGroup().intValue()]--;
                 waitingWriters--;
             }
@@ -217,9 +221,9 @@ public class ProcessManager {
      * @param writer - data of the abandoning process
      */
     public void writerExitProtocol(Rotation writer) {
-//        printStatus(writer, "waiting for mutex.");
+        //printStatus(writer, "waiting for mutex.");
         mutex.acquireUninterruptibly();
-//        printStatus(writer, "acquired mutex.");
+        //printStatus(writer, "acquired mutex.");
         activeWriters--;
         layerIsOccupied[writer.getLayerDisregardingOrientation()] = false;
 
@@ -230,17 +234,17 @@ public class ProcessManager {
             } else if (waitingWriters > 0) {
                 for (int i = 1; i <= AxisGroup.NUM_GROUPS.intValue(); i++) {
                     if (waitingWritersFromGivenGroup[(writer.getGroup().intValue() + i) % AxisGroup.NUM_GROUPS.intValue()] > 0) {
-//                        printStatus(writer, "released writerQueue[" + i + "].");
+                        //printStatus(writer, "released writerSems[" + i + "].");
                         writerSems[(writer.getGroup().intValue() + i) % AxisGroup.NUM_GROUPS.intValue()].release();
                         break;
                     }
                 }
             } else {
-//                printStatus(writer, "released mutex.");
+                //printStatus(writer, "released mutex.");
                 mutex.release();
             }
         } else {
-//            printStatus(writer, "released mutex.");
+            //printStatus(writer, "released mutex.");
             mutex.release();
         }
     }

@@ -5,7 +5,11 @@ import concurrentcube.Cube;
 import concurrentcube.AxisGroup;
 import concurrentcube.Side;
 
+import java.util.Random;
+
 public abstract class Rotation {
+
+    private static final Random rand = new Random();
 
     protected final Side side;
     protected final int layer;
@@ -33,6 +37,10 @@ public abstract class Rotation {
             case Bottom : return new BottomRotation(cube, layer);
             default : throw new IndexOutOfBoundsException("Invalid side.");
         }
+    }
+
+    public static Rotation randomRotation(Cube cube) {
+        return newRotation(cube, Side.randomSide(), rand.nextInt(cube.getSize()));
     }
 
     public Cube getCube() {
