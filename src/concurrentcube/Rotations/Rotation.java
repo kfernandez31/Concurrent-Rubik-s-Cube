@@ -52,7 +52,7 @@ public abstract class Rotation {
     public int getLayer() {
         return layer;
     }
-    public AxisGroup getGroup() {
+    public AxisGroup getAxis() {
         return axisGroup;
     }
 
@@ -68,7 +68,17 @@ public abstract class Rotation {
      * but from different perspectives) will return the same index.
      * @return group
      */
-    public abstract int getLayerDisregardingOrientation();
+    public abstract int getPlane();
+
+    //TODO: czy ta powyższa jest potrzebna
+    public static int getPlane(int size, int side, int layer) {
+        switch (Side.fromInt(side)) {
+            case Top: case Front: case Left: return layer;
+            default : return size - 1 - layer;
+        }
+    }
+
+
 
     /**
      * Physically rotates a Rubik's cube -

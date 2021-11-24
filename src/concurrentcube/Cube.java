@@ -4,13 +4,14 @@ import concurrentcube.Rotations.Rotation;
 
 import java.util.Arrays;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BiConsumer;
 
 public class Cube {
     private final int NUM_FACES = 6;
 
     private final int size;
-    private final Color[][] squares; //TODO: AtomicReferenceArray<Color>
+    private final Color[][] squares;
     private final BiConsumer<Integer, Integer> beforeRotation;
     private final BiConsumer<Integer, Integer> afterRotation;
     private final Runnable beforeShowing;
@@ -90,10 +91,11 @@ public class Cube {
 
         pm.writerEntryProtocol(r);
         pm.writerWaitIfNecessary(r);
-        pm.occupyLayer(r);
+        pm.occupyPlane(r);
         pm.inviteParallelWriters(r);
+        pm.printStatus(true, r, "STARTED ROTATING", -1);
         pm.writeToCube(r);
-        //pm.printStatus(r, "ROTATING");
+        pm.printStatus(true, r, "FINISHED ROTATING", -1);
         pm.writerExitProtocol(r);
     }
 
@@ -108,16 +110,18 @@ public class Cube {
      * @return `this.toString()`
      */
     public String show() throws InterruptedException {
-        pm.entryProtocol();
-        pm.readerWaitIfNecessary();
+        int myID = readerID.getAndIncrement();
+        pm.readerEntryProtocol(myID);
+        pm.readerWaitIfNecessary(myID);
         pm.inviteParallelReaders();
-
+        pm.printStatus(false, null, "STARTED SHOWING", myID);
         String str = pm.readFromCube();
-
-        pm.readerExitProtocol();
+        pm.printStatus(false, null, "FINISHED SHOWING", myID);
+        pm.readerExitProtocol(myID);
         return str;
     }
 
+    AtomicInteger readerID = new AtomicInteger(0);
     /**
      * Solves/initializes the cube, setting each side to its corresponding enum value.
      */

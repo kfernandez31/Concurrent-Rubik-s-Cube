@@ -1,5 +1,6 @@
 package test;
 
+import concurrentcube.AxisGroup;
 import concurrentcube.Cube;
 import concurrentcube.Rotations.*;
 import concurrentcube.Side;
@@ -11,38 +12,48 @@ import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.BiConsumer;
 
 /**
  * Klasa korzysta z JUNit5
  */
+//TODO: dodać alfabetycznie testy
 public class CubeTest {
     /**
      * Tests that utilize cube solving algorithms are in standard cubing notation,
      * however anti-clockwise turns are written in lowercase instead of the traditional apostrophe (ex. R' = r).
      */
 
-    private static final int TEST_MAX_CUBE_SIZE = 25;
     private static final int STANDARD_CUBE_SIZE = 3;
+    private static final int TEST_CUBE_SIZE = 10;
     private static final int MAX_THREADS = 64;
     private static final Random rand = new Random();
     private static final Stopwatch stopwatch = new Stopwatch();
+    private static final Semaphore varProtection = new Semaphore(1);
+
+    private static final int[] axisRotations = new int[AxisGroup.NUM_AXES.intValue()];
+    private static int activeReaders = 0;
+    private static int activeWriters = 0;
+    private static int[] planeRotations = new int[TEST_CUBE_SIZE];
 
     //TODO: wtrynić wszędzie show'y
     //TODO: ujednolicić rozmiary
 
     /* ------------------------ Helper functions and structures ------------------------ */
 
+    public static void logWithThreadName(String message) {
+        System.out.println("[" + Thread.currentThread().getName() + "] " + message);
+    }
+
     private static void interruptCurrentThread() {
-        Thread t = Thread.currentThread();
-        t.interrupt();
-        System.err.println(t.getName() + " interrupted");
+        logWithThreadName("interrupted");
+        Thread.currentThread().interrupt();
     }
 
     private static void sleep(int millis) {
         try {
             TimeUnit.MILLISECONDS.sleep(millis);
-        } catch (InterruptedException ignored) {
-        }
+        } catch (InterruptedException ignored) {}
     }
 
     private static void assertThat(boolean condition) {
@@ -140,6 +151,90 @@ public class CubeTest {
         }
     }
 
+    private static void resetSyncVars(int size) {
+        varProtection.drainPermits();
+        varProtection.release(1);
+        activeReaders = 0;
+        activeWriters = 0;
+
+        for (int i = 0; i < AxisGroup.NUM_AXES.intValue(); i++) {
+            axisRotations[i] = 0;
+        }
+        planeRotations = new int[size];
+    }
+
+    private static BiConsumer<Integer, Integer> defaultBeforeRotation(int size, int delay) {
+        return (side, layer) -> {
+            try {
+                varProtection.acquire();
+                AxisGroup axis = AxisGroup.fromSide(Side.fromInt(side));
+                int plane = Rotation.getPlane(size, side, layer);
+                activeWriters++;
+                axisRotations[axis.intValue()]++;
+                planeRotations[plane]++;
+
+                assertThat(activeReaders == 0 && planeRotations[plane] > 0 &&
+                        axisRotations[(axis.intValue() + 1) % AxisGroup.NUM_AXES.intValue()] == 0 &&
+                        axisRotations[(axis.intValue() + 2) % AxisGroup.NUM_AXES.intValue()] == 0
+                );
+                varProtection.release();
+                sleep(delay);
+            } catch (InterruptedException e) {
+                logWithThreadName("interrupted during beforeRotation");
+            }
+        };
+    }
+
+    private static BiConsumer<Integer, Integer> defaultAfterRotation(int size, int delay) {
+        return (side, layer) -> {
+            try {
+                varProtection.acquire();
+                AxisGroup axis = AxisGroup.fromSide(Side.fromInt(side));
+                int plane = Rotation.getPlane(size, side, layer);
+                activeWriters--;
+                axisRotations[axis.intValue()]--;
+                planeRotations[plane]--;
+
+                assertThat(activeReaders == 0 && planeRotations[plane] > 0 &&
+                        axisRotations[(axis.intValue() + 1) % AxisGroup.NUM_AXES.intValue()] == 0 &&
+                        axisRotations[(axis.intValue() + 2) % AxisGroup.NUM_AXES.intValue()] == 0
+                );
+                varProtection.release();
+                sleep(delay);
+            } catch (InterruptedException e) {
+                logWithThreadName("interrupted during afterRotation");
+            }
+        };
+    }
+
+    private static Runnable defaultBeforeShowing(int delay) {
+        return () -> {
+            try {
+                varProtection.acquire();
+                activeReaders++;
+                assertThat(activeWriters == 0);
+                varProtection.release();
+                sleep(delay);
+            } catch (InterruptedException e) {
+                logWithThreadName("interrupted during beforeShowing");
+            }
+        };
+    }
+
+    private static Runnable defaultAfterShowing(int delay) {
+        return () -> {
+            try {
+                varProtection.acquire();
+                activeReaders--;
+                assertThat(activeWriters == 0);
+                varProtection.release();
+                sleep(delay);
+            } catch (InterruptedException e) {
+                logWithThreadName("interrupted during afterShowing");
+            }
+        };
+    }
+
     /* ------------------------ Concurrent tests ------------------------ */
 
     /**
@@ -147,15 +242,23 @@ public class CubeTest {
      */
     @Test
     public void testRotationCompositionResultConcurrent() {
-        final int NUM_ROTATIONS = 8; //I advise you not to go higher than 9, since time will grow in O(n*n!)
+        final int NUM_ROTATIONS = 6; //I advise you not to go higher than 9, since time will grow in O(n*n!)
+        /*int size = 8;
+        resetSyncVars(size);
+        Cube cube = new Cube(size,
+                defaultBeforeRotation(size, 0),
+                defaultAfterRotation(size, 0),
+                defaultBeforeShowing(0),
+                defaultAfterShowing(0)
+        );*/
+
         AtomicInteger counter = new AtomicInteger(0);
-        Cube cube = new Cube(10,
+        Cube cube = new Cube(8,
                 (x, y) -> { counter.incrementAndGet(); },
                 (x, y) -> { counter.incrementAndGet(); },
                 counter::incrementAndGet,
                 counter::incrementAndGet
         );
-
 
         List<Rotation> rotations = new ArrayList<>();
         for (int i = 0; i < NUM_ROTATIONS; i++) {
@@ -201,7 +304,7 @@ public class CubeTest {
                 readersCounter::incrementAndGet
         );
 
-        final int NUM_READERS = 100000;
+        final int NUM_READERS = 10000;
 
         ExecutorService pool = Executors.newFixedThreadPool(MAX_THREADS);
         List<Callable<Object>> tasks = new ArrayList<>(NUM_READERS);
@@ -235,8 +338,8 @@ public class CubeTest {
                 readersCounter::incrementAndGet
         );
 
-        final int NUM_WRITERS = 10000;
-        final int NUM_READERS = 10000;
+        final int NUM_WRITERS = 2;
+        final int NUM_READERS = 0;
 
         ExecutorService pool = Executors.newFixedThreadPool(MAX_THREADS);
         List<Callable<Object>> tasks = new ArrayList<>(NUM_WRITERS + NUM_READERS);
@@ -547,7 +650,6 @@ public class CubeTest {
             pool.invokeAll(tasks);
 
             assertThat(cube.isSolved() && counter.intValue() == 4 * ROTATIONS_PER_TYPE);
-
         } catch (InterruptedException e) {
             interruptCurrentThread();
         } finally {

@@ -16,7 +16,7 @@ public class BackRotation extends Rotation {
     }
 
     @Override
-    public int getLayerDisregardingOrientation() {
+    public int getPlane() {
         return cube.getSize() - 1 - layer;
     }
 

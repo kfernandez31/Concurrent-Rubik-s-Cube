@@ -16,7 +16,7 @@ public class LeftRotation extends Rotation {
     }
 
     @Override
-    public int getLayerDisregardingOrientation() {
+    public int getPlane() {
         return layer;
     }
 

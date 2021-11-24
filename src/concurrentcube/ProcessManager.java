@@ -4,96 +4,129 @@ import concurrentcube.Rotations.Rotation;
 
 import java.util.concurrent.Semaphore;
 
-/*TODO: should cleanup code in finally blocks? */
+/*TODO: should cleanup code be in finally blocks? */
 public class ProcessManager {
 
-    /* Mutual exclusion semaphore. */
-    private final Semaphore mutex;
-    /* Queue to hang awaiting show requests */
+    /* Mutual exclusion semaphore implemented as a binary semaphore. */
+    private final Semaphore varMutex;
+    /* Semaphore to hang awaiting `show` requests */
     private final Semaphore readerSem;
+    /* Semaphores to guarantee mutual exclusion between rotations of the plane */
+    private final Semaphore[] planeMutexes;
+    /* Semaphores to hang rotations conflicting with the currently working axis */
+    private final Semaphore[] axisSems;
+
+    /* Number of processes that currently displaying the cube */
+    private int activeReaders;
     /* Number of processes waiting to call `show` */
     private int waitingReaders;
-    /* Number of processes that are currently calling `show` */
-    private int activeReaders;
-    /* Number of rotations currently taking place */
-    private int activeWriters;
     /* Number of processes waiting to call `rotate` */
     private int waitingWriters;
-    /* Number of processes waiting to call `rotate` from a specific group */
-    private final int[] waitingWritersFromGivenGroup;
-    /* Contains the side ID of the first process that initiated any rotations in its group */
-    private AxisGroup currentGroup;
-    /* ID of the last group of writers that finished their work */
-    private int lastFinishedWriterGroupId;
-    /* Statuses of the cube's rings/layers - are they being rotated or not */
-    private final boolean[] layerIsOccupied;
-    /* Semaphores for writers on each axis */
-    private final Semaphore[] writerSems;
+    /* Number of processes currently rotating the cube */
+    private int activeWriters;
 
+    /* Number of writers from each axis waiting for cube access */
+    private final int[] waitingFromAxis;
+    /* Status of a plane - whether a rotation is being performed on it */
+    private final boolean[] planeIsOccupied;
+
+    /* Contains the side ID of the first process that initiated any rotations in its group */
+    private AxisGroup currentAxis;
+    /* ID of the last group of writers that finished their work */
+    private AxisGroup lastFinishedWritersAxis;
+
+    /* Cube handled by the manager */
     private final Cube cube;
 
     private final Semaphore messageMutex = new Semaphore(1);
-    public void printStatus(Rotation r, String status) {
-        try {
-            messageMutex.acquire();
-            System.out.printf("Process:   rotate(%d,%d), ID: %d\n", r.getSide().intValue(), r.getLayer(), r.ID);
-            System.out.println("Status:    " + status + "\n");
-            messageMutex.release();
-        } catch (InterruptedException ignored) {
-
+    private boolean DEBUG = true;
+    public void printStatus(boolean writer, Rotation r, String status, int readerID) {
+        if (DEBUG) {
+            try {
+                messageMutex.acquire();
+                if (writer) {
+                    System.out.printf("Process:   rotate(%d,%d), ID: %d\n", r.getSide().intValue(), r.getLayer(), r.ID);
+                } else {
+                    System.out.printf("Process:   reader, ID: %d\n", readerID);
+                }
+                /*System.out.println("Status:    " + status + "\n");*/
+                messageMutex.release();
+            } catch (InterruptedException ignored) {
+            }
         }
     }
 
     public ProcessManager(Cube cube) {
         this.cube = cube;
-        this.lastFinishedWriterGroupId = -1;
-        this.mutex = new Semaphore(1);
-        this.readerSem = new Semaphore(0, true);
-        this.waitingWritersFromGivenGroup = new int[AxisGroup.NUM_GROUPS.intValue()];
 
-        this.writerSems = new Semaphore[AxisGroup.NUM_GROUPS.intValue()];
-        for (int i = 0; i < AxisGroup.NUM_GROUPS.intValue(); i++) {
-            this.writerSems[i] = new Semaphore(0);
+        this.varMutex = new Semaphore(1);
+        this.readerSem = new Semaphore(0, true);
+
+        this.waitingFromAxis = new int[AxisGroup.NUM_AXES.intValue()];
+        this.axisSems = new Semaphore[AxisGroup.NUM_AXES.intValue()];
+        for (int axis = 0; axis < AxisGroup.NUM_AXES.intValue(); axis++) {
+            this.axisSems[axis] = new Semaphore(0);
         }
 
-        this.layerIsOccupied = new boolean[cube.getSize()];
+        this.planeIsOccupied = new boolean[cube.getSize()];
+        this.planeMutexes = new Semaphore[cube.getSize()];
+        for (int plane = 0; plane < cube.getSize(); plane++) {
+            this.planeMutexes[plane] = new Semaphore(1);
+        }
+
+        this.lastFinishedWritersAxis = AxisGroup.NO_AXIS;
+    }
+
+    private void findAndWakeNextWriterGroup(AxisGroup axis) {
+        for (int i = 1; i <= AxisGroup.NUM_AXES.intValue(); i++) {
+            int j = (axis.intValue() + i) % AxisGroup.NUM_AXES.intValue();
+            if (waitingFromAxis[j] > 0) {
+                axisSems[j].release();
+            }
+        }
+
+        if (DEBUG) { /*System.out.printf("releasing mutex\n");*/ }
+        varMutex.release();
     }
 
     /**
      * Enables a process to enter its entry protocol, waits if necessary.
      */
-    public void entryProtocol() throws InterruptedException {
+    public void readerEntryProtocol(int myID) throws InterruptedException {
         try {
-            mutex.acquire();
+            /*printStatus(false, null, "waiting for mutex.", myID);*/
+            varMutex.acquire();
+            /*printStatus(false, null, "acquired mutex.", myID);*/
         } catch (InterruptedException e) {
-            mutex.release();
+            varMutex.release();
             throw e;
         }
     }
 
-
+    //TODO: zrobić jeden entry protocol
     /**
      * Enables a process to enter its entry protocol, waits if necessary.
      */
     public void writerEntryProtocol(Rotation writer) throws InterruptedException {
         try {
-            //printStatus(writer, "waiting for mutex.");
-            mutex.acquire();
-            //printStatus(writer, "acquired mutex.");
+            printStatus(true, writer, "waiting for mutex.", -1);
+            varMutex.acquire();
+            printStatus(true, writer, "acquired mutex.", -1);
         } catch (InterruptedException e) {
-            mutex.release();
+            varMutex.release();
             throw e;
         }
     }
 
     /**
-     * Condition that, when met, halts a writer on its axis' semaphore
+     * A writer must wait if readers or other colliding writers
+     * are currently handling the cube.
      * @param writer : data of the requested writer
      * @return should the writer wait
      */
     private boolean writerWaitCondition(Rotation writer) {
-        return activeReaders > 0 || waitingReaders > 0 || (activeWriters > 0
-                && (currentGroup != writer.getGroup() || layerIsOccupied[writer.getLayerDisregardingOrientation()]));
+        return activeReaders > 0 ||
+                (activeWriters > 0 && (currentAxis != writer.getAxis() || planeIsOccupied[writer.getAxis().intValue()]));
     }
 
     private boolean readerWaitCondition() {
@@ -109,21 +142,23 @@ public class ProcessManager {
     public void writerWaitIfNecessary(Rotation writer) throws InterruptedException {
         try {
             if (writerWaitCondition(writer)) {
-                waitingWritersFromGivenGroup[writer.getGroup().intValue()]++;
                 waitingWriters++;
-                //printStatus(writer, "released mutex.");
-                mutex.release();
-                //printStatus(writer, "waiting for writerSems[" + writer.getLayerDisregardingOrientation() + "]");
-                writerSems[writer.getGroup().intValue()].acquire();
-                //printStatus(writer, "acquired writerSems[" + writer.getLayerDisregardingOrientation() + "]");
-                waitingWritersFromGivenGroup[writer.getGroup().intValue()]--;
+                waitingFromAxis[writer.getAxis().intValue()]++;
+
+                if (DEBUG) { /*System.out.printf("releasing mutex\n");*/ }
+                varMutex.release();
+
+                printStatus(true, writer, "waiting for planeSem[" + writer.getAxis() + "]" + "[" + writer.getPlane() + "]", -1);
+                axisSems[writer.getAxis().intValue()].acquire();
+                printStatus(true, writer, "acquired planeSem[" + writer.getAxis() + "]" + "[" + writer.getPlane() + "]", -1);
+
                 waitingWriters--;
+                waitingFromAxis[writer.getAxis().intValue()]--;
             }
         } catch (InterruptedException e) {
-            mutex.acquireUninterruptibly();
-            waitingWritersFromGivenGroup[writer.getGroup().intValue()]--;
-            waitingWriters--;
-            mutex.release();
+            varMutex.acquireUninterruptibly(); //TODO: Niech mutex nie służy do samego obrotu
+            waitingFromAxis[writer.getAxis().intValue()]--;
+            varMutex.release();
             throw e;
         }
     }
@@ -133,18 +168,23 @@ public class ProcessManager {
      * if there are other active processes inside that would collide with it.
      * (i.e. any writers)
      */
-    public void readerWaitIfNecessary() throws InterruptedException {
+    public void readerWaitIfNecessary(int myID) throws InterruptedException {
         try {
             if (readerWaitCondition()) {
                 waitingReaders++;
-                mutex.release();
+                if (DEBUG) { /*System.out.printf("releasing mutex\n");*/ }
+                varMutex.release();
+
+                printStatus(false, null, "waiting for readerSem", myID);
                 readerSem.acquire();
+                printStatus(false, null, "acquired readerSem", myID);
+
                 waitingReaders--;
             }
         } catch(InterruptedException e) {
-            mutex.acquireUninterruptibly();
+            varMutex.acquireUninterruptibly();
             waitingReaders--;
-            mutex.release();
+            varMutex.release();
             throw e;
         }
     }
@@ -154,12 +194,19 @@ public class ProcessManager {
      * indicating that a rotation on it has begun.
      * @param writer : data of the working writer
      */
-    public void occupyLayer(Rotation writer) {
-        activeWriters++;
-        if (activeWriters == 1) {
-            currentGroup = writer.getGroup();
+    public void occupyPlane(Rotation writer) {
+        try {
+            planeMutexes[writer.getPlane()].acquire();
+        } catch (InterruptedException e) {
+            planeMutexes[writer.getPlane()].release(); //TODO: czy na pewno???
         }
-        layerIsOccupied[writer.getLayerDisregardingOrientation()] = true;
+
+        planeIsOccupied[writer.getPlane()] = true;
+        activeWriters++;
+
+        if (activeWriters == 1) {
+            currentAxis = writer.getAxis();
+        }
     }
 
     /**
@@ -167,10 +214,10 @@ public class ProcessManager {
      * @param writer : data of the current writer
      */
     public void inviteParallelWriters(Rotation writer) {
-        if (waitingWritersFromGivenGroup[writer.getGroup().intValue()] > 0) {
-            writerSems[writer.getGroup().intValue()].release();
+        if (waitingFromAxis[writer.getAxis().intValue()] > 0) {
+            axisSems[writer.getAxis().intValue()].release();
         } else {
-            mutex.release();
+            varMutex.release();
         }
     }
 
@@ -181,9 +228,11 @@ public class ProcessManager {
         activeReaders++;
 
         if (waitingReaders > 0) {
+            if (DEBUG) { /*System.out.printf("releasing readerSem\n");*/ }
             readerSem.release();
         } else {
-            mutex.release();
+            if (DEBUG) { /*System.out.printf("releasing mutex\n");*/ }
+            varMutex.release();
         }
     }
 
@@ -221,31 +270,25 @@ public class ProcessManager {
      * @param writer - data of the abandoning process
      */
     public void writerExitProtocol(Rotation writer) {
-        //printStatus(writer, "waiting for mutex.");
-        mutex.acquireUninterruptibly();
-        //printStatus(writer, "acquired mutex.");
+        planeMutexes[writer.getPlane()].release();
+
+        printStatus(true, writer, "waiting for mutex.", -1);
+        varMutex.acquireUninterruptibly();
+        printStatus(true, writer, "acquired mutex uninterruptibly.", -1);
         activeWriters--;
-        layerIsOccupied[writer.getLayerDisregardingOrientation()] = false;
+        planeIsOccupied[writer.getPlane()] = false;
 
         if (activeWriters == 0) {
-            lastFinishedWriterGroupId = writer.getGroup().intValue();
+            lastFinishedWritersAxis = writer.getAxis();
             if (waitingReaders > 0) {
+                if (DEBUG) { /*System.out.printf("releasing readerSem\n");*/ }
                 readerSem.release();
-            } else if (waitingWriters > 0) {
-                for (int i = 1; i <= AxisGroup.NUM_GROUPS.intValue(); i++) {
-                    if (waitingWritersFromGivenGroup[(writer.getGroup().intValue() + i) % AxisGroup.NUM_GROUPS.intValue()] > 0) {
-                        //printStatus(writer, "released writerSems[" + i + "].");
-                        writerSems[(writer.getGroup().intValue() + i) % AxisGroup.NUM_GROUPS.intValue()].release();
-                        break;
-                    }
-                }
             } else {
-                //printStatus(writer, "released mutex.");
-                mutex.release();
+                findAndWakeNextWriterGroup(writer.getAxis());
             }
         } else {
-            //printStatus(writer, "released mutex.");
-            mutex.release();
+            if (DEBUG) { /*System.out.printf("releasing mutex\n");*/ }
+            varMutex.release();
         }
     }
 
@@ -253,25 +296,25 @@ public class ProcessManager {
      * Indicates that a reader is abandoning his critical section,
      * and allows other writers and readers to enter, prioritizing writers.
      */
-    public void readerExitProtocol() {
-        mutex.acquireUninterruptibly();
+    public void readerExitProtocol(int myID) {
+        printStatus(false, null, "waiting for mutex", myID);
+        varMutex.acquireUninterruptibly();
+        printStatus(false, null, "acquired mutex uninterruptibly", myID);
         activeReaders--;
 
         if (activeReaders == 0) {
             if (waitingWriters > 0) {
-                for (int i = 1; i <= AxisGroup.NUM_GROUPS.intValue(); i++) {
-                    if (waitingWritersFromGivenGroup[(lastFinishedWriterGroupId + i) % AxisGroup.NUM_GROUPS.intValue()] > 0) {
-                        writerSems[(lastFinishedWriterGroupId+ i) % AxisGroup.NUM_GROUPS.intValue()].release();
-                        break;
-                    }
-                }
+                findAndWakeNextWriterGroup(lastFinishedWritersAxis);
             } else if (waitingReaders > 0) {
+                if (DEBUG) { /*System.out.printf("releasing readerSem\n");*/ }
                 readerSem.release();
             } else {
-                mutex.release();
+                if (DEBUG) { /*System.out.printf("releasing mutex\n");*/ }
+                varMutex.release();
             }
         } else {
-            mutex.release();
+            if (DEBUG) { /*System.out.printf("releasing mutex\n");*/ }
+            varMutex.release();
         }
     }
 }
