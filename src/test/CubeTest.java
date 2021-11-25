@@ -1,23 +1,23 @@
 package test;
 
+import org.junit.Test;
+
 import concurrentcube.AxisGroup;
 import concurrentcube.Cube;
 import concurrentcube.Rotations.*;
 import concurrentcube.Side;
 import concurrentcube.Color;
-import org.junit.Test;
+
+import static test.Utils.*;
+
 
 import java.time.Duration;
-import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BiConsumer;
 
-/**
- * Klasa korzysta z JUNit5
- */
-//TODO: dodać alfabetycznie testy
+/* This class uses JUnit 5 */
 public class CubeTest {
     /**
      * Tests that utilize cube solving algorithms are in standard cubing notation,
@@ -27,208 +27,96 @@ public class CubeTest {
     private static final int STANDARD_CUBE_SIZE = 3;
     private static final int TEST_CUBE_SIZE = 10;
     private static final int MAX_THREADS = 64;
-    private static final Random rand = new Random();
-    private static final Stopwatch stopwatch = new Stopwatch();
-    private static final Semaphore varProtection = new Semaphore(1);
 
-    private static final int[] axisRotations = new int[AxisGroup.NUM_AXES.intValue()];
+    private static final Stopwatch stopwatch = new Stopwatch();
+
+    private static Semaphore varProtection = new Semaphore(1);
+    private static final int[] rotationsOnAxis = new int[AxisGroup.NUM_AXES.intValue()];
     private static int activeReaders = 0;
     private static int activeWriters = 0;
-    private static int[] planeRotations = new int[TEST_CUBE_SIZE];
+    private static int[] rotationsOnPlane;
 
-    //TODO: wtrynić wszędzie show'y
-    //TODO: ujednolicić rozmiary
-
-    /* ------------------------ Helper functions and structures ------------------------ */
-
-    public static void logWithThreadName(String message) {
-        System.out.println("[" + Thread.currentThread().getName() + "] " + message);
-    }
-
-    private static void interruptCurrentThread() {
-        logWithThreadName("interrupted");
-        Thread.currentThread().interrupt();
-    }
-
-    private static void sleep(int millis) {
-        try {
-            TimeUnit.MILLISECONDS.sleep(millis);
-        } catch (InterruptedException ignored) {}
-    }
-
-    private static void assertThat(boolean condition) {
-        if (!condition) {
-            throw new AssertionError();
-        }
-    }
-
-    private static boolean interruptWithProbability(Thread t, double prob) {
-        if (rand.nextDouble() <= prob) {
-            t.interrupt();
-            return true;
-        }
-        return false;
-    }
-
-    private static <T> void addPermutations(List<T> perm, int k, List<List<T>> acc) {
-        for(int i = k; i < perm.size(); i++){
-            java.util.Collections.swap(perm, i, k);
-            addPermutations(perm, k+1, acc);
-            java.util.Collections.swap(perm, k, i);
-        }
-        if (k == perm.size() - 1){
-            acc.add(new ArrayList<>(perm));
-        }
-    }
-
-    private static <T> List<List<T>> generateInterleavings(List<T> initialPermutation) {
-        List<List<T>> outcomes = new ArrayList<>();
-        addPermutations(initialPermutation, 0, outcomes);
-        return outcomes;
-    }
-
-    private static class Stopwatch {
-        private Instant start;
-
-        public void start() {
-            start = Instant.now();
-        }
-
-        public Duration stop() {
-            Duration duration = Duration.between(start, Instant.now());
-            start = null;
-            return duration;
-        }
-
-        public Duration runWithStopwatch(Runnable runnable) {
-            start();
-            runnable.run();
-            return stop();
-        }
-    }
-
-    private static class WriterTask implements Runnable {
-        private final Cube cube;
-        private final int side;
-        private final int layer;
-
-        public WriterTask(Cube cube, int side, int layer) {
-            this.cube = cube;
-            this.side = side;
-            this.layer = layer;
-        }
-
-        public static WriterTask fromRotation(Rotation rotation) {
-            return new WriterTask(rotation.getCube(), rotation.getSide().intValue(), rotation.getLayer());
-        }
-
-        @Override
-        public void run() {
-            try {
-                sleep(100);
-                cube.rotate(side, layer);
-            } catch (InterruptedException e) {
-                interruptCurrentThread();
-            }
-        }
-    }
-
-    private static class ReaderTask implements Runnable {
-        private final Cube cube;
-
-        public ReaderTask(Cube cube) {
-            this.cube = cube;
-        }
-
-        @Override
-        public void run() {
-            try {
-                sleep(100);
-                cube.show();
-            } catch (InterruptedException e) {
-                interruptCurrentThread();
-            }
-        }
-    }
+    /* ------------------------ Helper functions ------------------------ */
 
     private static void resetSyncVars(int size) {
-        varProtection.drainPermits();
-        varProtection.release(1);
+        /*varProtection.drainPermits();
+        varProtection.release(1);*/
+        varProtection = new Semaphore(1);
         activeReaders = 0;
         activeWriters = 0;
 
         for (int i = 0; i < AxisGroup.NUM_AXES.intValue(); i++) {
-            axisRotations[i] = 0;
+            rotationsOnAxis[i] = 0;
         }
-        planeRotations = new int[size];
+        rotationsOnPlane = new int[size];
     }
 
-    private static BiConsumer<Integer, Integer> defaultBeforeRotation(int size, int delay) {
+    private static BiConsumer<Integer, Integer> defaultBeforeRotation(int size, int msDelay) {
         return (side, layer) -> {
             try {
                 varProtection.acquire();
                 AxisGroup axis = AxisGroup.fromSide(Side.fromInt(side));
                 int plane = Rotation.getPlane(size, side, layer);
                 activeWriters++;
-                axisRotations[axis.intValue()]++;
-                planeRotations[plane]++;
+                rotationsOnAxis[axis.intValue()]++;
+                rotationsOnPlane[plane]++;
 
-                assertThat(activeReaders == 0 && planeRotations[plane] > 0 &&
-                        axisRotations[(axis.intValue() + 1) % AxisGroup.NUM_AXES.intValue()] == 0 &&
-                        axisRotations[(axis.intValue() + 2) % AxisGroup.NUM_AXES.intValue()] == 0
+                assertThat(activeReaders == 0 && rotationsOnPlane[plane] > 0 &&
+                        rotationsOnAxis[(axis.intValue() + 1) % AxisGroup.NUM_AXES.intValue()] == 0 &&
+                        rotationsOnAxis[(axis.intValue() + 2) % AxisGroup.NUM_AXES.intValue()] == 0
                 );
                 varProtection.release();
-                sleep(delay);
+                sleep(msDelay);
             } catch (InterruptedException e) {
                 logWithThreadName("interrupted during beforeRotation");
             }
         };
     }
 
-    private static BiConsumer<Integer, Integer> defaultAfterRotation(int size, int delay) {
+    private static BiConsumer<Integer, Integer> defaultAfterRotation(int size, int msDelay) {
         return (side, layer) -> {
             try {
                 varProtection.acquire();
                 AxisGroup axis = AxisGroup.fromSide(Side.fromInt(side));
                 int plane = Rotation.getPlane(size, side, layer);
                 activeWriters--;
-                axisRotations[axis.intValue()]--;
-                planeRotations[plane]--;
+                rotationsOnAxis[axis.intValue()]--;
+                rotationsOnPlane[plane]--;
 
-                assertThat(activeReaders == 0 && planeRotations[plane] > 0 &&
-                        axisRotations[(axis.intValue() + 1) % AxisGroup.NUM_AXES.intValue()] == 0 &&
-                        axisRotations[(axis.intValue() + 2) % AxisGroup.NUM_AXES.intValue()] == 0
+                assertThat(activeReaders == 0 && rotationsOnPlane[plane] > 0 &&
+                        rotationsOnAxis[(axis.intValue() + 1) % AxisGroup.NUM_AXES.intValue()] == 0 &&
+                        rotationsOnAxis[(axis.intValue() + 2) % AxisGroup.NUM_AXES.intValue()] == 0
                 );
                 varProtection.release();
-                sleep(delay);
+                sleep(msDelay);
             } catch (InterruptedException e) {
                 logWithThreadName("interrupted during afterRotation");
             }
         };
     }
 
-    private static Runnable defaultBeforeShowing(int delay) {
+    private static Runnable defaultBeforeShowing(int msDelay) {
         return () -> {
             try {
                 varProtection.acquire();
                 activeReaders++;
                 assertThat(activeWriters == 0);
                 varProtection.release();
-                sleep(delay);
+                sleep(msDelay);
             } catch (InterruptedException e) {
                 logWithThreadName("interrupted during beforeShowing");
             }
         };
     }
 
-    private static Runnable defaultAfterShowing(int delay) {
+    private static Runnable defaultAfterShowing(int msDelay) {
         return () -> {
             try {
                 varProtection.acquire();
                 activeReaders--;
                 assertThat(activeWriters == 0);
                 varProtection.release();
-                sleep(delay);
+                sleep(msDelay);
             } catch (InterruptedException e) {
                 logWithThreadName("interrupted during afterShowing");
             }
@@ -242,23 +130,24 @@ public class CubeTest {
      */
     @Test
     public void testRotationCompositionResultConcurrent() {
-        final int NUM_ROTATIONS = 6; //I advise you not to go higher than 9, since time will grow in O(n*n!)
-        /*int size = 8;
+        final int NUM_ROTATIONS = 6; //Don't put big numbers here as the time complexity will be O(n*n!)
+        int size = 8;
+
         resetSyncVars(size);
         Cube cube = new Cube(size,
                 defaultBeforeRotation(size, 0),
                 defaultAfterRotation(size, 0),
                 defaultBeforeShowing(0),
                 defaultAfterShowing(0)
-        );*/
+        );
 
-        AtomicInteger counter = new AtomicInteger(0);
+/*        AtomicInteger counter = new AtomicInteger(0);
         Cube cube = new Cube(8,
                 (x, y) -> { counter.incrementAndGet(); },
                 (x, y) -> { counter.incrementAndGet(); },
                 counter::incrementAndGet,
                 counter::incrementAndGet
-        );
+        );*/
 
         List<Rotation> rotations = new ArrayList<>();
         for (int i = 0; i < NUM_ROTATIONS; i++) {
@@ -276,7 +165,7 @@ public class CubeTest {
             pool.invokeAll(tasks);
             Color[][] res = cube.getCopyOfSquares();
 
-            List<List<Rotation>> interleavings = generateInterleavings(rotations);
+            List<List<Rotation>> interleavings = generatePermutations(rotations);
             List<Color[][]> outcomes = new ArrayList<>();
             for (List<Rotation> seq : interleavings) {
                 cube.applySequenceOfRotations(seq);
@@ -296,7 +185,7 @@ public class CubeTest {
      * Tests how multiple readers interact.
      */
     @Test
-    public void testManyReadersConcurrent() {
+    public void testSyncManyReadersConcurrent() {
         AtomicInteger readersCounter = new AtomicInteger(0);
         Cube cube = new Cube(3,
                 null, null,
@@ -338,8 +227,8 @@ public class CubeTest {
                 readersCounter::incrementAndGet
         );
 
-        final int NUM_WRITERS = 2;
-        final int NUM_READERS = 0;
+        final int NUM_WRITERS = 100000;
+        final int NUM_READERS = 100000;
 
         ExecutorService pool = Executors.newFixedThreadPool(MAX_THREADS);
         List<Callable<Object>> tasks = new ArrayList<>(NUM_WRITERS + NUM_READERS);
@@ -393,7 +282,7 @@ public class CubeTest {
             Thread t = threads[i];
             t.start();
             if (i % 2 == 0) {
-                interruptWithProbability(t, 0.5);
+                interruptWithProbability(t, 1);
             }
         }
 
@@ -438,7 +327,9 @@ public class CubeTest {
             Thread t = threads[i];
             t.start();
             if (i % 2 == 1) {
-                interruptWithProbability(t, 0.5);
+                if (interruptWithProbability(t, 1)) {
+                    interruptions++;
+                }
             }
         }
 
@@ -449,6 +340,7 @@ public class CubeTest {
             assert(cube.isLegal() &&
                     readersCounter.intValue() >= NUM_THREADS - interruptions &&
                     writersCounter.intValue() == NUM_THREADS);
+            System.out.println(interruptions);
         } catch (InterruptedException e) {
             interruptCurrentThread();
         }

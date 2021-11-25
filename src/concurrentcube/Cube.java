@@ -113,7 +113,7 @@ public class Cube {
         int myID = readerID.getAndIncrement();
         pm.readerEntryProtocol(myID);
         pm.readerWaitIfNecessary(myID);
-        pm.inviteParallelReaders();
+        pm.inviteParallelReaders(myID);
         pm.printStatus(false, null, "STARTED SHOWING", myID);
         String str = pm.readFromCube();
         pm.printStatus(false, null, "FINISHED SHOWING", myID);
