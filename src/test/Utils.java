@@ -12,25 +12,6 @@ public class Utils {
 
     public static final Random rand = new Random();
 
-    /**
-     * Interrupts a thread after a given delay.
-     */
-    class TimeOutTask extends TimerTask {
-        private Thread t;
-        private Timer timer;
-
-        TimeOutTask(Thread t, Timer timer){
-            this.t = t;
-            this.timer = timer;
-        }
-
-        public void run() {
-            if (t != null && t.isAlive()) {
-                t.interrupt();
-                timer.cancel();
-            }
-        }
-    }
 
     /**
      * Displays a message for the current thread.
@@ -38,7 +19,6 @@ public class Utils {
     public static void logWithThreadName(String message) {
         System.out.println("[" + Thread.currentThread().getName() + "] " + message);
     }
-
 
     /**
      * Performs and logs an interruption.
@@ -55,7 +35,9 @@ public class Utils {
     public static void sleep(int millis) {
         try {
             TimeUnit.MILLISECONDS.sleep(millis);
-        } catch (InterruptedException ignored) {}
+        } catch (InterruptedException ignored) {
+            //we ignore this exception on purpose
+        }
     }
 
     /**

@@ -89,13 +89,11 @@ public class Cube {
     public void rotate(int side, int layer) throws InterruptedException {
         Rotation r = Rotation.newRotation(this, Side.fromInt(side), layer);
 
-        pm.writerEntryProtocol(r);
+        pm.entryProtocol();
         pm.writerWaitIfNecessary(r);
         pm.occupyPlane(r);
         pm.inviteParallelWriters(r);
-        pm.printStatus(true, r, "STARTED ROTATING", -1);
         pm.writeToCube(r);
-        pm.printStatus(true, r, "FINISHED ROTATING", -1);
         pm.writerExitProtocol(r);
     }
 
@@ -110,18 +108,14 @@ public class Cube {
      * @return `this.toString()`
      */
     public String show() throws InterruptedException {
-        int myID = readerID.getAndIncrement();
-        pm.readerEntryProtocol(myID);
-        pm.readerWaitIfNecessary(myID);
-        pm.inviteParallelReaders(myID);
-        pm.printStatus(false, null, "STARTED SHOWING", myID);
+        pm.entryProtocol();
+        pm.readerWaitIfNecessary();
+        pm.inviteParallelReaders();
         String str = pm.readFromCube();
-        pm.printStatus(false, null, "FINISHED SHOWING", myID);
-        pm.readerExitProtocol(myID);
+        pm.readerExitProtocol();
         return str;
     }
 
-    AtomicInteger readerID = new AtomicInteger(0);
     /**
      * Solves/initializes the cube, setting each side to its corresponding enum value.
      */
@@ -166,7 +160,6 @@ public class Cube {
             if (colorOccurrences[i] != size * size) {
                 return false;
             }
-//            System.out.println("" + Color.fromInt(i) +  ": " + colorOccurrences[i]);
         }
         return true;
     }
@@ -241,20 +234,6 @@ public class Cube {
             }
         }
         return new String(chars);
-    }
-
-    public String toStringDebug() {
-        String str = "";
-
-        for (int side = Side.Top.intValue(); side < Side.SIDES.intValue(); side++) {
-            for (int row = 0; row < size; row++) {
-                for (int col = 0; col < size; col++) {
-                    str += squares[side][row * size + col].charValue();
-                }
-            }
-            str += " ";
-        }
-        return str;
     }
 
 }

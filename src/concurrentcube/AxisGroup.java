@@ -21,10 +21,6 @@ public enum AxisGroup {
         return id;
     }
 
-    public static AxisGroup fromInt(int ordinal) {
-        return values[ordinal];
-    }
-
     public static AxisGroup fromSide(Side side) {
         switch (side) {
             case Top : return TopBottom;

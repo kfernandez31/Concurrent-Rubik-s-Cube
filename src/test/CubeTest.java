@@ -10,7 +10,6 @@ import concurrentcube.Color;
 
 import static test.Utils.*;
 
-
 import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.*;
@@ -30,20 +29,24 @@ public class CubeTest {
 
     private static final Stopwatch stopwatch = new Stopwatch();
 
-    private static Semaphore varProtection = new Semaphore(1);
+    private static final Semaphore varProtection = new Semaphore(1);
     private static final int[] rotationsOnAxis = new int[AxisGroup.NUM_AXES.intValue()];
     private static int activeReaders = 0;
     private static int activeWriters = 0;
+    private static int performedRotations = 0;
+    private static int performedShows = 0;
     private static int[] rotationsOnPlane;
 
     /* ------------------------ Helper functions ------------------------ */
 
     private static void resetSyncVars(int size) {
-        /*varProtection.drainPermits();
-        varProtection.release(1);*/
-        varProtection = new Semaphore(1);
+        varProtection.drainPermits();
+        varProtection.release(1);
+
         activeReaders = 0;
         activeWriters = 0;
+        performedRotations = 0;
+        performedShows = 0;
 
         for (int i = 0; i < AxisGroup.NUM_AXES.intValue(); i++) {
             rotationsOnAxis[i] = 0;
@@ -61,7 +64,7 @@ public class CubeTest {
                 rotationsOnAxis[axis.intValue()]++;
                 rotationsOnPlane[plane]++;
 
-                assertThat(activeReaders == 0 && rotationsOnPlane[plane] > 0 &&
+                assertThat(activeReaders == 0 && rotationsOnPlane[plane] == 1 &&
                         rotationsOnAxis[(axis.intValue() + 1) % AxisGroup.NUM_AXES.intValue()] == 0 &&
                         rotationsOnAxis[(axis.intValue() + 2) % AxisGroup.NUM_AXES.intValue()] == 0
                 );
@@ -82,8 +85,9 @@ public class CubeTest {
                 activeWriters--;
                 rotationsOnAxis[axis.intValue()]--;
                 rotationsOnPlane[plane]--;
+                performedRotations++;
 
-                assertThat(activeReaders == 0 && rotationsOnPlane[plane] > 0 &&
+                assertThat(activeReaders == 0 && rotationsOnPlane[plane] == 0 &&
                         rotationsOnAxis[(axis.intValue() + 1) % AxisGroup.NUM_AXES.intValue()] == 0 &&
                         rotationsOnAxis[(axis.intValue() + 2) % AxisGroup.NUM_AXES.intValue()] == 0
                 );
@@ -114,6 +118,7 @@ public class CubeTest {
             try {
                 varProtection.acquire();
                 activeReaders--;
+                performedShows++;
                 assertThat(activeWriters == 0);
                 varProtection.release();
                 sleep(msDelay);
@@ -130,9 +135,7 @@ public class CubeTest {
      */
     @Test
     public void testRotationCompositionResultConcurrent() {
-        final int NUM_ROTATIONS = 6; //Don't put big numbers here as the time complexity will be O(n*n!)
-        int size = 8;
-
+        int size = 25;
         resetSyncVars(size);
         Cube cube = new Cube(size,
                 defaultBeforeRotation(size, 0),
@@ -141,13 +144,7 @@ public class CubeTest {
                 defaultAfterShowing(0)
         );
 
-/*        AtomicInteger counter = new AtomicInteger(0);
-        Cube cube = new Cube(8,
-                (x, y) -> { counter.incrementAndGet(); },
-                (x, y) -> { counter.incrementAndGet(); },
-                counter::incrementAndGet,
-                counter::incrementAndGet
-        );*/
+        final int NUM_ROTATIONS = 7; //Don't put big numbers here as the time complexity will be O(n*n!) !!!
 
         List<Rotation> rotations = new ArrayList<>();
         for (int i = 0; i < NUM_ROTATIONS; i++) {
@@ -186,11 +183,13 @@ public class CubeTest {
      */
     @Test
     public void testSyncManyReadersConcurrent() {
-        AtomicInteger readersCounter = new AtomicInteger(0);
-        Cube cube = new Cube(3,
-                null, null,
-                readersCounter::incrementAndGet,
-                readersCounter::incrementAndGet
+        int size = 25;
+        resetSyncVars(size);
+        Cube cube = new Cube(size,
+                defaultBeforeRotation(size, 0),
+                defaultAfterRotation(size, 0),
+                defaultBeforeShowing(0),
+                defaultAfterShowing(0)
         );
 
         final int NUM_READERS = 10000;
@@ -199,13 +198,12 @@ public class CubeTest {
         List<Callable<Object>> tasks = new ArrayList<>(NUM_READERS);
 
         for (int i = 0; i < NUM_READERS; i++) {
-            tasks.add(Executors.callable(
-                    new ReaderTask(cube)));
+            tasks.add(Executors.callable(new ReaderTask(cube)));
         }
 
         try {
             pool.invokeAll(tasks);
-            assertThat(cube.isLegal() && readersCounter.intValue() == 2 * NUM_READERS);
+            assertThat(cube.isLegal() && performedShows == NUM_READERS);
         } catch (InterruptedException e) {
             interruptCurrentThread();
         } finally {
@@ -218,13 +216,13 @@ public class CubeTest {
      */
     @Test
     public void testSyncOfReadersAndWriters() {
-        AtomicInteger readersCounter = new AtomicInteger(0);
-        AtomicInteger writersCounter = new AtomicInteger(0);
-        Cube cube = new Cube(3,
-                (x, y) -> { writersCounter.incrementAndGet(); },
-                (x, y) -> { writersCounter.incrementAndGet(); },
-                readersCounter::incrementAndGet,
-                readersCounter::incrementAndGet
+        int size = 10;
+        resetSyncVars(size);
+        Cube cube = new Cube(size,
+                defaultBeforeRotation(size, 0),
+                defaultAfterRotation(size, 0),
+                defaultBeforeShowing(0),
+                defaultAfterShowing(0)
         );
 
         final int NUM_WRITERS = 100000;
@@ -244,8 +242,7 @@ public class CubeTest {
 
         try {
             pool.invokeAll(tasks);
-            assertThat(cube.isLegal() &&
-                    readersCounter.intValue() == 2 * NUM_READERS && writersCounter.intValue() == 2 * NUM_WRITERS);
+            assertThat(cube.isLegal() && performedRotations == NUM_READERS && performedShows == NUM_WRITERS);
         } catch (InterruptedException e) {
             interruptCurrentThread();
         } finally {
@@ -258,31 +255,36 @@ public class CubeTest {
      */
     @Test
     public void testEffectsOfReaderInterruptions() {
-        AtomicInteger readersCounter = new AtomicInteger(0);
-        AtomicInteger writersCounter = new AtomicInteger(0);
-        int interruptions = 0;
-
-        Cube cube = new Cube(3,
-                (x, y) -> { writersCounter.incrementAndGet(); },
-                (x, y) -> { writersCounter.incrementAndGet(); },
-                readersCounter::incrementAndGet,
-                readersCounter::incrementAndGet
+        int size = 10;
+        resetSyncVars(size);
+        Cube cube = new Cube(size,
+                defaultBeforeRotation(size, 0),
+                defaultAfterRotation(size, 0),
+                defaultBeforeShowing(0),
+                defaultAfterShowing(0)
         );
 
-        final int NUM_THREADS = 10000;
+        final int NUM_THREADS = 100000;
         Thread[] threads = new Thread[NUM_THREADS];
 
-        /* Even indices - readers, odd - writers */
+        //Even indices - readers, odd - writers
         for (int i = 1; i <= NUM_THREADS / 2; i++) {
             threads[2 * i - 2] = new Thread(new ReaderTask(cube));
             threads[2 * i - 1] = new Thread(WriterTask.fromRotation(Rotation.randomRotation(cube)));
         }
 
+        Timer timer = new Timer();
+
         for (int i = 0; i < NUM_THREADS; i++) {
-            Thread t = threads[i];
-            t.start();
             if (i % 2 == 0) {
-                interruptWithProbability(t, 1);
+                Thread t = threads[i];
+                t.start();
+                timer.schedule(new TimerTask() {
+                    @Override
+                    public void run() {
+                        interruptWithProbability(t, 0.5);
+                    }
+                }, 10);
             }
         }
 
@@ -290,9 +292,7 @@ public class CubeTest {
             for (Thread t : threads) {
                 t.join();
             }
-            assert(cube.isLegal() &&
-                    readersCounter.intValue() >= NUM_THREADS - interruptions &&
-                    writersCounter.intValue() == NUM_THREADS);
+            assert(cube.isLegal());
         } catch (InterruptedException e) {
             interruptCurrentThread();
         }
@@ -303,33 +303,36 @@ public class CubeTest {
      */
     @Test
     public void testEffectsOfWriterInterruptions() {
-        AtomicInteger readersCounter = new AtomicInteger(0);
-        AtomicInteger writersCounter = new AtomicInteger(0);
-        int interruptions = 0;
-
-        Cube cube = new Cube(3,
-                (x, y) -> { writersCounter.incrementAndGet(); },
-                (x, y) -> { writersCounter.incrementAndGet(); },
-                readersCounter::incrementAndGet,
-                readersCounter::incrementAndGet
+        int size = 10;
+        resetSyncVars(size);
+        Cube cube = new Cube(size,
+                defaultBeforeRotation(size, 0),
+                defaultAfterRotation(size, 0),
+                defaultBeforeShowing(0),
+                defaultAfterShowing(0)
         );
 
-        final int NUM_THREADS = 10000;
+        final int NUM_THREADS = 5000;
         Thread[] threads = new Thread[NUM_THREADS];
 
-        /* Even indices - readers, odd - writers */
+        //Even indices - readers, odd - writers
         for (int i = 1; i <= NUM_THREADS / 2; i++) {
             threads[2 * i - 2] = new Thread(new ReaderTask(cube));
             threads[2 * i - 1] = new Thread(WriterTask.fromRotation(Rotation.randomRotation(cube)));
         }
 
+        Timer timer = new Timer();
+
         for (int i = 0; i < NUM_THREADS; i++) {
-            Thread t = threads[i];
-            t.start();
             if (i % 2 == 1) {
-                if (interruptWithProbability(t, 1)) {
-                    interruptions++;
-                }
+                Thread t = threads[i];
+                t.start();
+                timer.schedule(new TimerTask() {
+                    @Override
+                    public void run() {
+                        interruptWithProbability(t, 0.5);
+                    }
+                }, 10);
             }
         }
 
@@ -337,10 +340,7 @@ public class CubeTest {
             for (Thread t : threads) {
                 t.join();
             }
-            assert(cube.isLegal() &&
-                    readersCounter.intValue() >= NUM_THREADS - interruptions &&
-                    writersCounter.intValue() == NUM_THREADS);
-            System.out.println(interruptions);
+            assert(cube.isLegal());
         } catch (InterruptedException e) {
             interruptCurrentThread();
         }
@@ -351,67 +351,63 @@ public class CubeTest {
      */
     @Test
     public void testEffectsOfReaderAndWriterInterruptions() {
-        AtomicInteger readersCounter = new AtomicInteger(0);
-        AtomicInteger writersCounter = new AtomicInteger(0);
-        int readerInterruptions = 0, writerInterruptions = 0;
-
-        Cube cube = new Cube(3,
-                (x, y) -> { writersCounter.incrementAndGet(); },
-                (x, y) -> { writersCounter.incrementAndGet(); },
-                readersCounter::incrementAndGet,
-                readersCounter::incrementAndGet
+        int size = 10;
+        resetSyncVars(size);
+        Cube cube = new Cube(size,
+                defaultBeforeRotation(size, 0),
+                defaultAfterRotation(size, 0),
+                defaultBeforeShowing(0),
+                defaultAfterShowing(0)
         );
 
-        final int NUM_THREADS = 10000;
+        final int NUM_THREADS = 100000;
         Thread[] threads = new Thread[NUM_THREADS];
 
-        /* Even indices - readers, odd - writers */
+        //Even indices - readers, odd - writers
         for (int i = 1; i <= NUM_THREADS / 2; i++) {
             threads[2 * i - 2] = new Thread(new ReaderTask(cube));
             threads[2 * i - 1] = new Thread(WriterTask.fromRotation(Rotation.randomRotation(cube)));
         }
 
+        Timer timer = new Timer();
+
         for (int i = 0; i < NUM_THREADS; i++) {
             Thread t = threads[i];
-            boolean interrupted = interruptWithProbability(t, 0.5);
+            t.start();
+            timer.schedule(new TimerTask() {
+                @Override
+                public void run() {
+                    interruptWithProbability(t, 0.5);
 
-            if (interrupted) {
-                if (i % 2 == 0) {
-                    readerInterruptions++;
                 }
-                else {
-                    writerInterruptions++;
-                }
-            }
+            }, 10);
         }
 
         try {
             for (Thread t : threads) {
                 t.join();
             }
-            assert(cube.isLegal() &&
-                    readersCounter.intValue() >= NUM_THREADS - readerInterruptions &&
-                    writersCounter.intValue() >= NUM_THREADS - writerInterruptions);
+            assert(cube.isLegal());
         } catch (InterruptedException e) {
             interruptCurrentThread();
         }
     }
-
 
     /**
      * Tests how the synchronization algorithm handles random rotations.
      */
     @Test
     public void testManyRandomRotationsConcurrent() {
-        AtomicInteger counter = new AtomicInteger(0);
-        Cube cube = new Cube(3,
-                (x, y) -> { counter.incrementAndGet(); },
-                (x, y) -> { counter.incrementAndGet(); },
-                counter::incrementAndGet,
-                counter::incrementAndGet
+        int size = 10;
+        resetSyncVars(size);
+        Cube cube = new Cube(size,
+                defaultBeforeRotation(size, 0),
+                defaultAfterRotation(size, 0),
+                defaultBeforeShowing(0),
+                defaultAfterShowing(0)
         );
 
-        final int NUM_ROTATIONS = 20000;
+        final int NUM_ROTATIONS = 200000;
 
         ExecutorService pool = Executors.newFixedThreadPool(MAX_THREADS);
         List<Callable<Object>> tasks = new ArrayList<>(NUM_ROTATIONS);
@@ -422,7 +418,7 @@ public class CubeTest {
 
         try {
             pool.invokeAll(tasks);
-            assertThat(cube.isLegal() && counter.intValue() == 2 * NUM_ROTATIONS);
+            assertThat(cube.isLegal() && performedRotations == NUM_ROTATIONS);
         } catch (InterruptedException e) {
             interruptCurrentThread();
         } finally {
@@ -431,29 +427,41 @@ public class CubeTest {
     }
 
     /**
+     * Tests whether an interruption on a process that's about to be awakened halts other waiters.
+     */
+    @Test
+    public void testScenario_whatHappensWhenWhoImWakingIsInterrupted() {
+        ;
+    }
+
+    /**
      * Tests whether conflicting rotations are actually stopped on their axis' semaphores
      * and whether only one can rotate the cube at a time.
      */
     @Test
-    public void testLetAnotherRotationPass() {
+    public void testScenario_letAnotherRotationPass() {
         AtomicInteger times_first_thread_started_rotating = new AtomicInteger(0);
         AtomicInteger times_someone_else_started_rotating = new AtomicInteger(0);
 
         Cube cube = new Cube(3,
                 (side, __) -> {
                     if (side == Side.Top.intValue()) {
+                        int x = times_someone_else_started_rotating.intValue();
                         times_first_thread_started_rotating.incrementAndGet();
-                        sleep(200); // give time for other threads to try and pass
-                        assertThat(times_someone_else_started_rotating.intValue() == 0);
-                    }
-                    else {
+                        sleep(50); // give time for other threads to try and pass
+                        assertThat(times_someone_else_started_rotating.intValue() == x);
+                    } else {
                         times_someone_else_started_rotating.incrementAndGet();
                     }
                 },
                 null, null, null);
 
-        WriterTask politeRunnable = new WriterTask(cube, Side.Top.intValue(), 0);
-        Thread firstThread = new Thread(politeRunnable);
+
+        Thread politeThread = new Thread(() -> {
+            WriterTask writer = new WriterTask(cube, Side.Top.intValue(), 0);
+            sleep(5);
+            writer.run();
+        });
 
         Thread[] otherThreads = new Thread[] {
                 new Thread(new WriterTask(cube,  Side.Left.intValue(), 0)),
@@ -463,13 +471,12 @@ public class CubeTest {
                 new Thread(new WriterTask(cube,  Side.Bottom.intValue(), 2)),
         };
 
-        firstThread.start();
-        sleep(100); //TODO: this is to ensure `firstThread` will start first
+        politeThread.start();
         for (Thread t : otherThreads) {
             t.start();
         }
         try {
-            firstThread.join();
+            politeThread.join();
             for (Thread t : otherThreads) {
                 t.join();
             }
@@ -484,14 +491,16 @@ public class CubeTest {
      */
     @Test
     public void testCyclesOfParallelRotationsConcurrent() {
-        final int ROTATIONS_PER_TYPE = 4444;
-        AtomicInteger counter = new AtomicInteger(0);
-        Cube cube = new Cube(10,
-                (x, y) -> { counter.incrementAndGet(); },
-                (x, y) -> { counter.incrementAndGet(); },
-                counter::incrementAndGet,
-                counter::incrementAndGet
+        int size = 10;
+        resetSyncVars(size);
+        Cube cube = new Cube(size,
+                defaultBeforeRotation(size, 10),
+                defaultAfterRotation(size, 10),
+                defaultBeforeShowing(0),
+                defaultAfterShowing(0)
         );
+
+        final int ROTATIONS_PER_TYPE = 20000;
 
         ExecutorService pool = Executors.newFixedThreadPool(MAX_THREADS);
         List<Callable<Object>> tasks = new ArrayList<>(2 * ROTATIONS_PER_TYPE);
@@ -506,7 +515,7 @@ public class CubeTest {
 
         try {
             pool.invokeAll(tasks);
-            assertThat(cube.isSolved() && counter.intValue() == 2 * cube.getSize() * ROTATIONS_PER_TYPE);
+            assertThat(cube.isSolved() && performedRotations == ROTATIONS_PER_TYPE * cube.getSize());
         } catch (InterruptedException e) {
             interruptCurrentThread();
         } finally {
@@ -519,29 +528,30 @@ public class CubeTest {
      */
     @Test
     public void testTwoAntagonistRotationsConcurrent() {
-        final int ROTATIONS_PER_TYPE = 1000;
-        AtomicInteger counter = new AtomicInteger(0);
-        Cube cube = new Cube(5,
-                (x, y) -> { counter.incrementAndGet(); },
-                (x, y) -> { counter.incrementAndGet(); },
-                counter::incrementAndGet,
-                counter::incrementAndGet
+        int size = 20;
+        resetSyncVars(size);
+        Cube cube = new Cube(size,
+                defaultBeforeRotation(size,     10),
+                defaultAfterRotation(size,  10),
+                defaultBeforeShowing(0),
+                defaultAfterShowing(0)
         );
+
+        final int ROTATION_PAIRS = 50000;
 
         ExecutorService pool = Executors.newFixedThreadPool(MAX_THREADS);
 
         Side side = Side.randomSide();
         int layer = rand.nextInt(cube.getSize());
 
-        List<Callable<Object>> tasks = new ArrayList<>(2 * ROTATIONS_PER_TYPE);
-        for (int i = 0; i < ROTATIONS_PER_TYPE; i++) {
+        List<Callable<Object>> tasks = new ArrayList<>(2 * ROTATION_PAIRS);
+        for (int i = 0; i < ROTATION_PAIRS; i++) {
             tasks.add(Executors.callable(new WriterTask(cube, side.intValue(), layer)));
             tasks.add(Executors.callable(new WriterTask(cube, side.opposite().intValue(), cube.getSize() - 1 - layer)));
         }
         try {
             pool.invokeAll(tasks);
-
-            assertThat(cube.isSolved() && counter.intValue() == 4 * ROTATIONS_PER_TYPE);
+            assertThat(cube.isSolved() && performedRotations == 2 * ROTATION_PAIRS);
         } catch (InterruptedException e) {
             interruptCurrentThread();
         } finally {
@@ -554,14 +564,16 @@ public class CubeTest {
      */
     @Test
     public void testManyAntagonistRotationsConcurrent() {
-        final int NUM_PAIRS = 1000;
-        AtomicInteger counter = new AtomicInteger(0);
-        Cube cube = new Cube(3,
-                (x, y) -> { counter.incrementAndGet(); },
-                (x, y) -> { counter.incrementAndGet(); },
-                counter::incrementAndGet,
-                counter::incrementAndGet
+        int size = 10;
+        resetSyncVars(size);
+        Cube cube = new Cube(size,
+                defaultBeforeRotation(size, 0),
+                defaultAfterRotation(size, 0),
+                defaultBeforeShowing(0),
+                defaultAfterShowing(0)
         );
+
+        final int NUM_PAIRS = 7500;
 
         ExecutorService pool = Executors.newFixedThreadPool(MAX_THREADS);
         List<Callable<Object>> tasks = new ArrayList<>(2 * NUM_PAIRS);
@@ -576,7 +588,7 @@ public class CubeTest {
 
         try {
             pool.invokeAll(tasks);
-            assertThat(cube.isSolved() && counter.intValue() == 4 * cube.getSize() * NUM_PAIRS);
+            assertThat(cube.isSolved() && performedRotations == 2 * cube.getSize() * NUM_PAIRS);
         } catch (InterruptedException e) {
             interruptCurrentThread();
         } finally {
@@ -588,15 +600,16 @@ public class CubeTest {
 
     @Test
     public void testCyclesOfParallelRotationsSequential() {
-        final int ROTATIONS_PER_TYPE = 4444;
-        AtomicInteger counter = new AtomicInteger(0);
-        Cube cube = new Cube(3,
-                (x, y) -> { counter.incrementAndGet(); },
-                (x, y) -> { counter.incrementAndGet(); },
-                counter::incrementAndGet,
-                counter::incrementAndGet
+        int size = 10;
+        resetSyncVars(size);
+        Cube cube = new Cube(size,
+                defaultBeforeRotation(size, 10),
+                defaultAfterRotation(size, 10),
+                defaultBeforeShowing(0),
+                defaultAfterShowing(0)
         );
 
+        final int ROTATIONS_PER_TYPE = 10000;
         Side side = Side.randomSide();
 
         try {
@@ -605,7 +618,7 @@ public class CubeTest {
                     cube.rotate(side.intValue(), layer);
                 }
             }
-            assertThat(cube.isSolved() && counter.intValue() == 2 * cube.getSize() * ROTATIONS_PER_TYPE);
+            assertThat(cube.isSolved() && performedRotations == ROTATIONS_PER_TYPE * cube.getSize());
         } catch (InterruptedException e) {
             interruptCurrentThread();
         }
@@ -613,24 +626,25 @@ public class CubeTest {
 
     @Test
     public void testTwoAntagonistRotationsSequential() {
-        final int ROTATIONS_PER_TYPE = 1000;
-        AtomicInteger counter = new AtomicInteger(0);
-        Cube cube = new Cube(3,
-                (x, y) -> { counter.incrementAndGet(); },
-                (x, y) -> { counter.incrementAndGet(); },
-                counter::incrementAndGet,
-                counter::incrementAndGet
+        int size = 20;
+        resetSyncVars(size);
+        Cube cube = new Cube(size,
+                defaultBeforeRotation(size, 0),
+                defaultAfterRotation(size, 0),
+                defaultBeforeShowing(0),
+                defaultAfterShowing(0)
         );
 
+        final int ROTATION_PAIRS = 1000;
         Side side = Side.randomSide();
         int layer = rand.nextInt(cube.getSize());
 
         try {
-            for (int i = 0; i < ROTATIONS_PER_TYPE; i++) {
+            for (int i = 0; i < ROTATION_PAIRS; i++) {
                 cube.rotate(side.intValue(), layer);
                 cube.rotate(side.opposite().intValue(), cube.getSize() - 1 - layer);
             }
-            assertThat(cube.isSolved() && counter.intValue() == 4 * ROTATIONS_PER_TYPE);
+            assertThat(cube.isSolved() && performedShows == 2 * ROTATION_PAIRS);
 
         } catch (InterruptedException e) {
             interruptCurrentThread();
@@ -639,24 +653,26 @@ public class CubeTest {
 
     @Test
     public void testManyAntagonistRotationsSequential() {
-        final int ROTATIONS_PER_TYPE = 1000;
-        AtomicInteger counter = new AtomicInteger(0);
-        Cube cube = new Cube(3,
-                (x, y) -> { counter.incrementAndGet(); },
-                (x, y) -> { counter.incrementAndGet(); },
-                counter::incrementAndGet,
-                counter::incrementAndGet
+        int size = 10;
+        resetSyncVars(size);
+        Cube cube = new Cube(size,
+                defaultBeforeRotation(size, 10),
+                defaultAfterRotation(size, 10),
+                defaultBeforeShowing(0),
+                defaultAfterShowing(0)
         );
+
+        final int NUM_PAIRS = 10000;
 
         try {
             Side side = Side.randomSide();
-            for (int i = 0; i < ROTATIONS_PER_TYPE; i++) {
+            for (int i = 0; i < NUM_PAIRS; i++) {
                 for (int layer = 0; layer < cube.getSize(); layer++) {
                     cube.rotate(side.intValue(), layer);
                     cube.rotate(side.opposite().intValue(), cube.getSize() - 1 - layer);
                 }
             }
-            assertThat(cube.isSolved() && counter.intValue() == 4 * cube.getSize() * ROTATIONS_PER_TYPE);
+            assertThat(cube.isSolved() && performedRotations == 2 * cube.getSize() * NUM_PAIRS);
         } catch (InterruptedException e) {
             interruptCurrentThread();
         }
@@ -667,24 +683,25 @@ public class CubeTest {
      */
     @Test
     public void testCycleOfRUruSequential() {
-        final int ROTATIONS_PER_TYPE = 666;
-        AtomicInteger counter = new AtomicInteger(0);
-        Cube cube = new Cube(3,
-                (x, y) -> { counter.incrementAndGet(); },
-                (x, y) -> { counter.incrementAndGet(); },
-                counter::incrementAndGet,
-                counter::incrementAndGet
+        int size = 10;
+        resetSyncVars(size);
+        Cube cube = new Cube(size,
+                defaultBeforeRotation(size, 0),
+                defaultAfterRotation(size, 0),
+                defaultBeforeShowing(0),
+                defaultAfterShowing(0)
         );
 
+        final int LOOPS = 66666;
         try {
-            for (int i = 0; i < ROTATIONS_PER_TYPE; i++) {
+            for (int i = 0; i < LOOPS; i++) {
                 cube.rotate(Side.Right.intValue(), 0);
                 cube.rotate(Side.Top.intValue(),0);
                 cube.rotate(Side.Right.opposite().intValue(),cube.getSize() - 1);
                 cube.rotate(Side.Top.opposite().intValue(),cube.getSize() - 1);
             }
 
-            assertThat(cube.isSolved() && counter.intValue() == 2 * 4 * ROTATIONS_PER_TYPE);
+            assertThat(cube.isSolved() && performedRotations == 4 * LOOPS);
         } catch (InterruptedException e) {
             interruptCurrentThread();
         }
@@ -692,12 +709,13 @@ public class CubeTest {
 
     @Test
     public void testManyRandomRotationsSequential() {
-        AtomicInteger counter = new AtomicInteger(0);
-        Cube cube = new Cube(3,
-                (x, y) -> { counter.incrementAndGet(); },
-                (x, y) -> { counter.incrementAndGet(); },
-                counter::incrementAndGet,
-                counter::incrementAndGet
+        int size = 10;
+        resetSyncVars(size);
+        Cube cube = new Cube(size,
+                defaultBeforeRotation(size, 0),
+                defaultAfterRotation(size, 0),
+                defaultBeforeShowing(0),
+                defaultAfterShowing(0)
         );
 
         final int NUM_ROTATIONS = 20000;
@@ -707,7 +725,7 @@ public class CubeTest {
                 cube.rotate(Side.randomSide().intValue(), rand.nextInt(cube.getSize()));
             }
 
-            assertThat(cube.isLegal() && counter.intValue() == 2 * NUM_ROTATIONS);
+            assertThat(cube.isLegal() && performedRotations == NUM_ROTATIONS);
         } catch (InterruptedException e) {
             interruptCurrentThread();
         }
@@ -1060,6 +1078,10 @@ public class CubeTest {
         assertThat(Arrays.deepEquals(solvedArrangement, cube.getSquares()) && counter.intValue() == 4);
     }
 
+
+    /**
+     * This compares whether concurrency boosts speed.
+     */
     @Test
     public void testTimeOfConcurrentVsSequentialTests() {
         Duration seq_time, conc_time;

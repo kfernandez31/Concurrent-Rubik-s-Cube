@@ -16,15 +16,12 @@ public abstract class Rotation {
     protected final Cube cube;
     protected final AxisGroup axisGroup;
 
-    public static int nextID = 0;
-    public final int ID;
 
     protected Rotation(Cube cube, Side side, int layer) {
         this.cube = cube;
         this.side = side;
         this.layer = layer;
         this.axisGroup = assignGroup();
-        this.ID = nextID++;
     }
 
     public static Rotation newRotation(Cube cube, Side side, int layer) {
@@ -66,19 +63,23 @@ public abstract class Rotation {
      * Returns the index of the layer the rotation wants to alter,
      * however antagonist rotations (altering the same "ring" of the cube
      * but from different perspectives) will return the same index.
-     * @return group
+     * @return handled plane
      */
     public abstract int getPlane();
 
-    //TODO: czy ta powyższa jest potrzebna
+    /**
+     * Same as above but doesn't require a `Rotation` instance.
+     * @param size : size of a cube
+     * @param side : side of the rotation
+     * @param layer : layer of the rotation
+     * @return handled plane
+     */
     public static int getPlane(int size, int side, int layer) {
         switch (Side.fromInt(side)) {
             case Top: case Front: case Left: return layer;
             default : return size - 1 - layer;
         }
     }
-
-
 
     /**
      * Physically rotates a Rubik's cube -
