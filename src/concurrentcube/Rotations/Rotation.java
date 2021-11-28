@@ -2,7 +2,7 @@ package concurrentcube.Rotations;
 
 import concurrentcube.Color;
 import concurrentcube.Cube;
-import concurrentcube.AxisGroup;
+import concurrentcube.WorkingGroup;
 import concurrentcube.Side;
 
 import java.util.Random;
@@ -14,14 +14,14 @@ public abstract class Rotation {
     protected final Side side;
     protected final int layer;
     protected final Cube cube;
-    protected final AxisGroup axisGroup;
+    protected final WorkingGroup workingGroup;
 
 
     protected Rotation(Cube cube, Side side, int layer) {
         this.cube = cube;
         this.side = side;
         this.layer = layer;
-        this.axisGroup = assignGroup();
+        this.workingGroup = assignGroup();
     }
 
     public static Rotation newRotation(Cube cube, Side side, int layer) {
@@ -49,15 +49,15 @@ public abstract class Rotation {
     public int getLayer() {
         return layer;
     }
-    public AxisGroup getAxis() {
-        return axisGroup;
+    public WorkingGroup getAxis() {
+        return workingGroup;
     }
 
     /**
      * Assigns a group based on the rotation's axis.
      * @return group
      */
-    protected abstract AxisGroup assignGroup();
+    protected abstract WorkingGroup assignGroup();
 
     /**
      * Returns the index of the layer the rotation wants to alter,

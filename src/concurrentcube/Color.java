@@ -2,6 +2,9 @@ package concurrentcube;
 
 import java.util.Random;
 
+/**
+ * Enumeration of the cube's colors
+ */
 public enum Color {
 
     White(0),
@@ -17,7 +20,7 @@ public enum Color {
 
     private final int color;
 
-    private static final Random rand = new Random(); //TODO: czy to jest tak, że każdy kolor ma swoją intancję?
+    private static final Random rand = new Random();
 
     Color(int color) {
         this.color = color;

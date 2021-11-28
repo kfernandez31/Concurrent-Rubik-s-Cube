@@ -5,9 +5,8 @@ import concurrentcube.Rotations.Rotation;
 import java.util.concurrent.Semaphore;
 
 public class ProcessManager {
-
     /* Mutual exclusion semaphore implemented as a binary semaphore. */
-    private final Semaphore varMutex;
+    private final Semaphore varProtection;
     /* Semaphore to hang awaiting `show` requests */
     private final Semaphore readerSem;
     /* Semaphores to guarantee mutual exclusion between rotations of the plane */
@@ -28,9 +27,9 @@ public class ProcessManager {
     private final int[] waitingFromAxis;
 
     /* Contains the side ID of the first process that initiated any rotations in its group */
-    private AxisGroup currentAxis;
+    private WorkingGroup currentAxis;
     /* ID of the last group of writers that finished their work */
-    private AxisGroup lastFinishedWritersAxis;
+    private WorkingGroup lastFinishedGroup;
 
     /* Cube handled by the manager */
     private final Cube cube;
@@ -38,12 +37,12 @@ public class ProcessManager {
     public ProcessManager(Cube cube) {
         this.cube = cube;
 
-        this.varMutex = new Semaphore(1);
+        this.varProtection = new Semaphore(1);
         this.readerSem = new Semaphore(0, true);
 
-        this.waitingFromAxis = new int[AxisGroup.NUM_AXES.intValue()];
-        this.axisSems = new Semaphore[AxisGroup.NUM_AXES.intValue()];
-        for (int axis = 0; axis < AxisGroup.NUM_AXES.intValue(); axis++) {
+        this.waitingFromAxis = new int[WorkingGroup.NUM_AXES.intValue()];
+        this.axisSems = new Semaphore[WorkingGroup.NUM_AXES.intValue()];
+        for (int axis = 0; axis < WorkingGroup.NUM_AXES.intValue(); axis++) {
             this.axisSems[axis] = new Semaphore(0);
         }
 
@@ -52,26 +51,24 @@ public class ProcessManager {
             this.planeMutexes[plane] = new Semaphore(1);
         }
 
-        this.lastFinishedWritersAxis = AxisGroup.NO_AXIS;
+        this.lastFinishedGroup = WorkingGroup.Readers;
     }
 
-    private void findAndWakeNextWriterGroup(AxisGroup axis) {
-        for (int i = 1; i <= AxisGroup.NUM_AXES.intValue(); i++) {
-            int j = (axis.intValue() + i) % AxisGroup.NUM_AXES.intValue();
+    private int findNextWaitingWriterGroup(int axis) {
+        for (int i = 1; i <= WorkingGroup.NUM_AXES.intValue(); i++) {
+            int j = (axis + i) % WorkingGroup.NUM_AXES.intValue();
             if (waitingFromAxis[j] > 0) {
-                axisSems[j].release();
-                return;
+                return j;
             }
         }
-
-        varMutex.release();
+        return -1;
     }
 
     /**
      * Enables a process to enter its entry protocol, waits on the `varMutex` if necessary.
      */
     public void entryProtocol() throws InterruptedException {
-        varMutex.acquire();
+        varProtection.acquire();
     }
 
     /**
@@ -81,8 +78,7 @@ public class ProcessManager {
      * @return should the writer wait
      */
     private boolean writerWaitCondition(Rotation writer) {
-        return activeReaders > 0 ||
-                (activeWriters > 0 && (currentAxis != writer.getAxis()));
+        return activeReaders > 0 || (activeWriters > 0 && (currentAxis != writer.getAxis()));
     }
 
     private boolean readerWaitCondition() {
@@ -100,7 +96,7 @@ public class ProcessManager {
             if (writerWaitCondition(writer)) {
                 waitingWriters++;
                 waitingFromAxis[writer.getAxis().intValue()]++;
-                varMutex.release();
+                varProtection.release();
 
                 axisSems[writer.getAxis().intValue()].acquire();
 
@@ -108,10 +104,31 @@ public class ProcessManager {
                 waitingFromAxis[writer.getAxis().intValue()]--;
             }
         } catch (InterruptedException e) {
-            varMutex.acquireUninterruptibly();
-            waitingWriters--;
-            waitingFromAxis[writer.getAxis().intValue()]--;
-            varMutex.release();
+            // the process was interrupted after being woken by an exiting process
+            if (axisSems[writer.getAxis().intValue()].tryAcquire()) {
+                waitingWriters--;
+                waitingFromAxis[writer.getAxis().intValue()]--;
+
+                // resume waking starting from my group
+                if (waitingFromAxis[writer.getAxis().intValue()] > 0) {
+                    axisSems[writer.getAxis().intValue()].release();
+                } else if (lastFinishedGroup == WorkingGroup.Readers) {
+                    if (waitingReaders > 0) {
+                        readerSem.release();
+                    } else {
+                        varProtection.release();
+                    }
+                } else {
+                    varProtection.release();
+                }
+                axisSems[writer.getAxis().intValue()].release();
+            } else {
+                // the process was interrupted before trying to acquire its semaphore
+                varProtection.acquireUninterruptibly();
+                waitingWriters--;
+                waitingFromAxis[writer.getAxis().intValue()]--;
+                varProtection.release();
+            }
             throw e;
         }
     }
@@ -125,16 +142,38 @@ public class ProcessManager {
         try {
             if (readerWaitCondition()) {
                 waitingReaders++;
-                varMutex.release();
+                varProtection.release();
 
                 readerSem.acquire();
 
                 waitingReaders--;
             }
         } catch(InterruptedException e) {
-            varMutex.acquireUninterruptibly();
-            waitingReaders--;
-            varMutex.release();
+            // the process was interrupted after being woken by an exiting process
+            if (readerSem.tryAcquire()) {
+                waitingReaders--;
+                // resume waking starting from my group
+                if (waitingReaders > 0) {
+                    readerSem.release();
+                } else if (lastFinishedGroup != WorkingGroup.Readers) {
+                    if (waitingWriters > 0) {
+                        int nextGroup = findNextWaitingWriterGroup(lastFinishedGroup.intValue());
+                        if (nextGroup != -1) {
+                            axisSems[nextGroup].release();
+                        } else {
+                            varProtection.release();
+                        }
+                    }
+                } else {
+                    varProtection.release();
+                }
+                readerSem.release();
+            } else {
+                // the process was interrupted before trying to acquire its semaphore
+                varProtection.acquireUninterruptibly();
+                waitingWriters--;
+                varProtection.release();
+            }
             throw e;
         }
     }
@@ -161,7 +200,7 @@ public class ProcessManager {
         if (waitingFromAxis[writer.getAxis().intValue()] > 0) {
             axisSems[writer.getAxis().intValue()].release();
         } else {
-            varMutex.release();
+            varProtection.release();
         }
     }
 
@@ -174,7 +213,7 @@ public class ProcessManager {
         if (waitingReaders > 0) {
             readerSem.release();
         } else {
-            varMutex.release();
+            varProtection.release();
         }
     }
 
@@ -214,18 +253,23 @@ public class ProcessManager {
     public void writerExitProtocol(Rotation writer) {
         planeMutexes[writer.getPlane()].release();
 
-        varMutex.acquireUninterruptibly();
+        varProtection.acquireUninterruptibly();
         activeWriters--;
 
         if (activeWriters == 0) {
-            lastFinishedWritersAxis = writer.getAxis();
+            lastFinishedGroup = writer.getAxis();
             if (waitingReaders > 0) {
                 readerSem.release();
             } else {
-                findAndWakeNextWriterGroup(writer.getAxis());
+                int nextGroup = findNextWaitingWriterGroup(writer.getAxis().intValue());
+                if (nextGroup != -1) {
+                    axisSems[nextGroup].release();
+                } else {
+                    varProtection.release();
+                }
             }
         } else {
-            varMutex.release();
+            varProtection.release();
         }
     }
 
@@ -234,19 +278,26 @@ public class ProcessManager {
      * and allows other writers and readers to enter, prioritizing writers.
      */
     public void readerExitProtocol() {
-        varMutex.acquireUninterruptibly();
+        varProtection.acquireUninterruptibly();
         activeReaders--;
+        lastFinishedGroup = WorkingGroup.Readers;
 
         if (activeReaders == 0) {
             if (waitingWriters > 0) {
-                findAndWakeNextWriterGroup(lastFinishedWritersAxis);
+                int nextGroup = findNextWaitingWriterGroup(lastFinishedGroup.intValue());
+                if (nextGroup != -1) {
+                    axisSems[nextGroup].release();
+                } else {
+                    varProtection.release();
+                }
             } else if (waitingReaders > 0) {
                 readerSem.release();
             } else {
-                varMutex.release();
+                varProtection.release();
             }
         } else {
-            varMutex.release();
+            varProtection.release();
         }
     }
+
 }

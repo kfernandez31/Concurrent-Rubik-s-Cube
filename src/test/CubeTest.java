@@ -2,7 +2,7 @@ package test;
 
 import org.junit.Test;
 
-import concurrentcube.AxisGroup;
+import concurrentcube.WorkingGroup;
 import concurrentcube.Cube;
 import concurrentcube.Rotations.*;
 import concurrentcube.Side;
@@ -30,7 +30,7 @@ public class CubeTest {
     private static final Stopwatch stopwatch = new Stopwatch();
 
     private static final Semaphore varProtection = new Semaphore(1);
-    private static final int[] rotationsOnAxis = new int[AxisGroup.NUM_AXES.intValue()];
+    private static final int[] rotationsOnAxis = new int[WorkingGroup.NUM_AXES.intValue()];
     private static int activeReaders = 0;
     private static int activeWriters = 0;
     private static int performedRotations = 0;
@@ -48,7 +48,7 @@ public class CubeTest {
         performedRotations = 0;
         performedShows = 0;
 
-        for (int i = 0; i < AxisGroup.NUM_AXES.intValue(); i++) {
+        for (int i = 0; i < WorkingGroup.NUM_AXES.intValue(); i++) {
             rotationsOnAxis[i] = 0;
         }
         rotationsOnPlane = new int[size];
@@ -58,15 +58,15 @@ public class CubeTest {
         return (side, layer) -> {
             try {
                 varProtection.acquire();
-                AxisGroup axis = AxisGroup.fromSide(Side.fromInt(side));
+                WorkingGroup axis = WorkingGroup.fromSide(Side.fromInt(side));
                 int plane = Rotation.getPlane(size, side, layer);
                 activeWriters++;
                 rotationsOnAxis[axis.intValue()]++;
                 rotationsOnPlane[plane]++;
 
                 assertThat(activeReaders == 0 && rotationsOnPlane[plane] == 1 &&
-                        rotationsOnAxis[(axis.intValue() + 1) % AxisGroup.NUM_AXES.intValue()] == 0 &&
-                        rotationsOnAxis[(axis.intValue() + 2) % AxisGroup.NUM_AXES.intValue()] == 0
+                        rotationsOnAxis[(axis.intValue() + 1) % WorkingGroup.NUM_AXES.intValue()] == 0 &&
+                        rotationsOnAxis[(axis.intValue() + 2) % WorkingGroup.NUM_AXES.intValue()] == 0
                 );
                 varProtection.release();
                 sleep(msDelay);
@@ -80,7 +80,7 @@ public class CubeTest {
         return (side, layer) -> {
             try {
                 varProtection.acquire();
-                AxisGroup axis = AxisGroup.fromSide(Side.fromInt(side));
+                WorkingGroup axis = WorkingGroup.fromSide(Side.fromInt(side));
                 int plane = Rotation.getPlane(size, side, layer);
                 activeWriters--;
                 rotationsOnAxis[axis.intValue()]--;
@@ -88,8 +88,8 @@ public class CubeTest {
                 performedRotations++;
 
                 assertThat(activeReaders == 0 && rotationsOnPlane[plane] == 0 &&
-                        rotationsOnAxis[(axis.intValue() + 1) % AxisGroup.NUM_AXES.intValue()] == 0 &&
-                        rotationsOnAxis[(axis.intValue() + 2) % AxisGroup.NUM_AXES.intValue()] == 0
+                        rotationsOnAxis[(axis.intValue() + 1) % WorkingGroup.NUM_AXES.intValue()] == 0 &&
+                        rotationsOnAxis[(axis.intValue() + 2) % WorkingGroup.NUM_AXES.intValue()] == 0
                 );
                 varProtection.release();
                 sleep(msDelay);
@@ -360,7 +360,7 @@ public class CubeTest {
                 defaultAfterShowing(0)
         );
 
-        final int NUM_THREADS = 100000;
+        final int NUM_THREADS = 20000;
         Thread[] threads = new Thread[NUM_THREADS];
 
         //Even indices - readers, odd - writers

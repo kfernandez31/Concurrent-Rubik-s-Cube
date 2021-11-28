@@ -2,7 +2,11 @@ package concurrentcube;
 
 import java.util.Random;
 
+/**
+ * Enumeration of the cube's faces/sides
+ */
 public enum Side {
+
     Top(0),
     Left(1),
     Front(2),

@@ -1,19 +1,21 @@
 package concurrentcube;
 
-
-public enum AxisGroup {
+/*
+IDs of groups handling the cube
+ */
+public enum WorkingGroup {
     TopBottom(0),
     LeftRight(1),
     FrontBack(2),
 
     NUM_AXES(3),
-    NO_AXIS(-1);
+    Readers(-1);
 
 
-    private static final AxisGroup[] values = values();
+    private static final WorkingGroup[] values = values();
     private final int id;
 
-    AxisGroup(int id) {
+    WorkingGroup(int id) {
         this.id = id;
     }
 
@@ -21,7 +23,7 @@ public enum AxisGroup {
         return id;
     }
 
-    public static AxisGroup fromSide(Side side) {
+    public static WorkingGroup fromSide(Side side) {
         switch (side) {
             case Top : return TopBottom;
             case Left : return LeftRight;
