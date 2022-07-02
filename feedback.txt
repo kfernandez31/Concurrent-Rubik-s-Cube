@@ -1,0 +1,19 @@
+Suma: 4.00/7
+
+Testy:
+0.50 | Proste testy obsługi rotate
+0.50 | Pełne testy obsługi rotate
+0.50 | Proste testy obsługi rotate i show
+0.50 | Pełne testy obsługi rotate i show
+0.00 | Podstawowa obsługa przerwań
+0.00 | Pełna obsługa przerwań
+0.30 | Równoległe wykonywanie dozwolonych operacji (I)
+0.30 | Równoległe wykonywanie dozwolonych operacji (II)
+0.40 | Równoległe wykonywanie dozwolonych operacji (III)
+0.25 | Sekwencyjne wykonywanie wykluczających się operacji (I)
+0.25 | Sekwencyjne wykonywanie wykluczających się operacji (II)
+0.25 | Sekwencyjne wykonywanie wykluczających się operacji (III)
+0.25 | Sekwencyjne wykonywanie wykluczających się operacji (IV)
+0.00 | Żywotność rozwiązania
+
+Uwagi: N/A
