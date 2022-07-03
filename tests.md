@@ -1,7 +1,7 @@
 # Współbieżna kostka (ocena implementacji, max. 7)
 
 ## Testy rocznikowe 
-[Link](https://gitlab.com/mimuw-rocznik-2001/pw-2021/testy-zad1)
+https://gitlab.com/mimuw-rocznik-2001/pw-2021/testy-zad1
 
 ## Testy oficjalne
 
