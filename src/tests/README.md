@@ -1,9 +1,13 @@
 # Współbieżna kostka (ocena implementacji, max. 7)
 
+## Testy własne 
+TODO
+
 ## Testy rocznikowe 
 https://gitlab.com/mimuw-rocznik-2001/pw-2021/testy-zad1
 
 ## Testy oficjalne
+https://github.com/vitreusx/grader-java
 
 ### Repo
 Testy znajdują się na repo https://github.com/vitreusx/grader-java. Suita testów `JUnit` znajduje się w pliku `src/test/java/concurrentcube/CubeTest.java`. Używany jest także package `src/test/java/solution`, będący rozwiązaniem zadania (zwany dalej "referencyjnym") używanym w ramach testów. Uwaga: nie jest to rozwiązanie wzorcowe, tylko część implementacji testów.
