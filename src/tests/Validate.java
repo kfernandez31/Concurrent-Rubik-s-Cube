@@ -1,3 +1,5 @@
+package tests;
+
 import concurrentcube.Cube;
 
 public class Validate {

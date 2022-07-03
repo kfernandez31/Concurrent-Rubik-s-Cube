@@ -1,4 +1,4 @@
-package test;
+package tests;
 
 import concurrentcube.Cube;
 import concurrentcube.Rotations.Rotation;
