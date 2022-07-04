@@ -10,8 +10,8 @@ Blok należy do trzech prostopadłych warstw kostki. Bloki można przemieszczać
 Konstrukcja kostki pozwala na jednoczesne obracanie warstw, które nie mają wspólnych bloków.
 
 ## Polecenie
-- Zaimplementuj kostkę umożliwiającą współbieżne wykonywanie operacji obrócenia warstwy i pokazania aktualnego stanu kostki (**7 pkt**).
-- Napisz klasę testów jednostkowych kostki (**3 pkt**).
+- Zaimplementuj **kostkę umożliwiającą współbieżne wykonywanie operacji** obrócenia warstwy i pokazania aktualnego stanu kostki (**7 pkt**).
+- Napisz **klasę testów jednostkowych** kostki (**3 pkt**).
 
 Rozwiązanie ma być zgodne z poniższą specyfikacją.
 
