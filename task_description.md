@@ -16,12 +16,13 @@ Konstrukcja kostki pozwala na jednoczesne obracanie warstw, które nie mają wsp
 Rozwiązanie ma być zgodne z poniższą specyfikacją.
 
 ## Implementacja kostki
-W rozwiązaniu zadania jest pakiet `concurrentcube` z implementacją kostki za pomocą klasy:
+W rozwiązaniu zadania jest pakiet [**concurrentcube**](https://github.com/kfernandez31/PW-1-Rubiks-Cube/tree/main/src/concurrentcube) z implementacją kostki za pomocą klasy:
+
 ```java
 package concurrentcube;
 
 import java.util.function.BiConsumer;
-...
+//...
 
 public class Cube {
 
@@ -41,7 +42,7 @@ public class Cube {
         //TODO
     }
 
-    ...
+    //...
 }
 ```
 - Konstruktor `Cube(size, beforeRotation, afterRotation, beforeShowing, afterShowing)` tworzy ułożoną kostkę rozmiaru `size`. Parametr `size` oznacza długość boku kostki mierzoną liczbą kwadratów.
@@ -59,7 +60,7 @@ public class Cube {
     - Dla ściany górnej i dolnej kolejność jest taka, jaką zobaczymy po obrocie całej kostki o wielokrotność kąta prostego od strony ściany lewej lub prawej.
     - Bezpośrednio przed zbudowaniem opisu kostki, gdy wątek doczeka się na możliwość wykonania tej operacji, metoda wywołuje akcję `beforeShowing` a bezpośrednio po zbudowaniu opisu wywołuje akcję `afterShowing`.
 
-Oprócz klasy `Cube`, w rozwiązaniu mogą być inne definicje, zarówno w pakiecie `concurrentcube`, jak i w pakietach pomocniczych.
+Oprócz klasy `Cube`, w rozwiązaniu mogą być inne definicje, zarówno w pakiecie [**concurrentcube**](https://github.com/kfernandez31/PW-1-Rubiks-Cube/tree/main/src/concurrentcube), jak i w pakietach pomocniczych.
 
 ## Współbieżność implementacji
 Rozwiązanie nie dopuszcza do zagłodzenia wątku.
@@ -73,7 +74,7 @@ Wynik metody `show()` jest zgodny ze scenariuszem, w którym obroty są wykonywa
 W przypadku przerwania wątku czekającego na wykonanie operacji, metody `rotate(side, layer)` i `show()` zgłaszają wyjątek `InterruptedException`. Po przerwaniu stan kostki pozostaje poprawny. Pozostałe wątki mogą normalnie kontynuować pracę.
 
 ## Testy jednostkowe
-W pakiecie concurrentcube rozwiązania, oprócz klasy `Cube` jest też klasa testów jednostkowych `CubeTest`, używająca [JUnit](https://en.wikipedia.org/wiki/JUnit) w wersji 5.
+W pakiecie [**concurrentcube**](https://github.com/kfernandez31/PW-1-Rubiks-Cube/tree/main/src/concurrentcube) rozwiązania, oprócz klasy `Cube` jest też klasa testów jednostkowych `CubeTest`, używająca [**JUnit**](https://en.wikipedia.org/wiki/JUnit) w wersji 5.
 
 Testy sprawdzają poprawność i współbieżność rozwiązania oraz obsługę przerwań.
 
@@ -93,8 +94,8 @@ Implementacja kostki podlega walidacji, wstępnie sprawdzającej zgodność ze s
 
 Na komputerze students, w katalogu walidacji, są:
 - pliki `.tar.gz` z rozwiązaniami,
-- plik [validate.sh](https://github.com/kfernandez31/PW-1-Rubiks-Cube/blob/main/validate.sh),
-- plik [Validate.java](https://github.com/kfernandez31/PW-1-Rubiks-Cube/blob/main/Validate.java).
+- plik [**validate.sh**](https://github.com/kfernandez31/PW-1-Rubiks-Cube/blob/main/validate.sh),
+- plik [**Validate.java**](https://github.com/kfernandez31/PW-1-Rubiks-Cube/blob/main/Validate.java).
 
 Polecenie:
 ```

@@ -4,7 +4,7 @@ What you see is a repository of my solution for task no. 1. of the [Concurrent P
 
 # Brief description
 
-The task was to write a program that enables concurrent read & write operations on a Rubik's cube with a fair strategy for both types of requests. Reading - displaying the cube, writing - rotating it.
+The task was to write a program that enables concurrent read & write operations on a Rubik's cube with a fair strategy for both types. Reading - displaying the cube, writing - rotating it.
 
 # Full description 
 
